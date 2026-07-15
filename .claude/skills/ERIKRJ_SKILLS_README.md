@@ -74,6 +74,7 @@ Two skills work together to surface and fix GitHub's security and quality alerts
 | `pr-create` | Pushes the current branch and opens a draft GitHub PR against `main`, with a succinct title and body written as the squash-merge commit. | No | Pushes + opens draft PR |
 | `codereview <path>` | Recursively reviews a single path against the rules in `CLAUDE.md` and `.github/copilot-instructions.md`, prints the violations it finds, and maintains the outstanding-violations backlog in `CODEREVIEW.md` (removing findings a rerun no longer finds). Reports only; does not edit reviewed code. | Writes `CODEREVIEW.md` | No |
 | `clientloop-release-notes` | Reads the `Platform` CodePipeline in the `clientloop-devops` AWS account for deploys that reached production, pulls each deploy's PR from `nr1etech/nr1e`, and updates two ClientLoop docs pages: a filtered customer-facing release-notes page and a per-deployment internal log (`release-notes-internal.md`, excluded from the sitemap). Reads AWS + GitHub; does not commit. | Writes docs release-notes pages | Reads only |
+| `skills-update` | Refreshes every installed skill (and all its related files) from the `metadata.source` GitHub URL declared in each `SKILL.md`, overwriting local copies with the authoritative source. Reports updated/unchanged/stale per skill; does not commit or push. | Writes skill files | Reads only |
 
 ## Adding a skill
 
