@@ -1,0 +1,36 @@
+{
+  "name": "transcribe",
+  "version": "0.0.1",
+  "description": "CLI that transcribes an audio or video file with AWS Transcribe, writing the transcript next to the input file",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "transcribe": "dist/cli.js"
+  },
+  "scripts": {
+    "prebuild": "biome check",
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "vitest run src",
+    "clean": "rm -rf dist",
+    "reset": "rm -rf dist && rm -rf node_modules",
+    "fix": "biome check --write .",
+    "fmt": "biome format --write ."
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "catalog:",
+    "@aws-sdk/client-sts": "catalog:",
+    "@aws-sdk/client-transcribe": "catalog:",
+    "@aws-sdk/lib-storage": "catalog:",
+    "valibot": "catalog:"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

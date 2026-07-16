@@ -1,0 +1,8 @@
+{
+  "name": "public",
+  "description": "DO NOT ADD DEPENDENCIES HERE",
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "reset": "rm -rf node_modules"
+  }
+}
