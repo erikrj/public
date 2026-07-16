@@ -1,0 +1,418 @@
+---
+metadata:
+  owner: Erik Jensen (@erikrj)
+  source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
+  version: 2026.07.16.0650
+---
+
+# Copilot Instructions
+
+This file instructs GitHub Copilot when it performs **code reviews** on pull requests in this repository. It is not a general style guide — it is the set of rules Copilot should check for and flag.
+
+## How to use this file (for the reviewer)
+
+1. **Cite rule codes.** When flagging a violation, reference the rule code (e.g. **TS-001**) in the review comment. Do not paraphrase a rule without citing it. If a comment is not tied to a rule code in this file, it should be clearly marked as a suggestion rather than a required change.
+2. **Flag, do not rewrite.** Identify the violation, quote the offending line(s), cite the rule, and propose the minimal fix. Do not rewrite unrelated code.
+3. **Stay in scope.** Only comment on lines changed in the diff, or on existing code whose behavior is materially affected by the diff. Do not comment on pre-existing violations in untouched code.
+4. **Do not comment on subjective style.** If a behavior is not covered by a rule code in this file (or by an enforced linter / formatter config), do not flag it. In particular, do not comment on naming preferences, comment density, or code "readability" unless a specific rule applies.
+5. **Handle ambiguity by asking, not assuming.** If the diff could plausibly comply or violate a rule depending on context not visible in the diff, ask a clarifying question instead of asserting a violation.
+6. **Severity.** Treat every rule in this file as required unless the rule text itself uses "should" / "may" rather than "must".
+
+## Domain prefixes
+
+Rule codes are grouped by domain. The following prefixes are reserved:
+
+- `GEN-` — General (repository-wide conventions that apply regardless of language or framework)
+- `TS-` — TypeScript / JavaScript (language, tooling, package management)
+- `PY-` — Python (language, tooling, style)
+- `GQL-` — GraphQL (schema conventions, client types, validation)
+- `CDK-` — AWS CDK (infrastructure constructs, stacks, stages)
+- `DDB-` — DynamoDB (data access, table and entity modeling)
+- `QWIK-` — Qwik (routing, loaders, server boundaries)
+- `LIT-` — Lit (web components, reactive properties, attribute mapping)
+- `UI-` — User interface (styling, theming)
+
+Additional domains will be added over time. New rules within a domain are appended with the next available number; existing numbers are never reused or renumbered.
+
+---
+
+## General
+
+### File Headers
+
+**GEN-001** — Source files must not contain copyright headers, license disclaimers, author tags, or similar boilerplate comment blocks. Licensing is governed at the repository level (via `LICENSE` files and `package.json`), not per file.
+
+### Terminology
+
+**GEN-002** — Do not use the terms `blacklist` and `whitelist` (in any casing or compound form, e.g. `black_list`, `whiteList`). Use `denylist` and `allowlist` instead. This applies to identifiers, comments, documentation, and user-facing strings.
+
+### HTTP Headers
+
+**GEN-004** — Do not use the `X-` prefix for custom HTTP headers. The `X-` convention was deprecated by [RFC 6648](https://www.rfc-editor.org/rfc/rfc6648) (an IETF Best Current Practice, 2012) because a header that proves useful inevitably outlives its "experimental" prefix, and renaming it later breaks every client. Name new application headers without the prefix — e.g. `cl-signature`, `cl-timestamp` — not `X-Signature` or `X-Webhook-Signature`.
+
+### Distributed Agent Files
+
+**GEN-005** — Agent skills (files under `.claude/skills/`) and this `.github/copilot-instructions.md` file are **distributed copies**: each declares its upstream in a `metadata.source` frontmatter field, and downstream repositories re-sync from that source via the `skills-update` skill. Any change to these files must be made in the **authoritative source** identified by `metadata.source`, never by editing the local downstream copy. A local edit diverges from the source and is silently overwritten the next time the file is synced. If a fix or improvement is needed, make it in the source repository and re-sync — do not patch the copy in place.
+
+---
+
+## TypeScript / JavaScript
+
+### File Naming
+
+**TS-001** — TypeScript and JavaScript file names should be kebab cased and may only contain lowercase letters, numbers, and hyphens. For example, `my-file.ts` is allowed but `MyFile.ts` and `my_file.ts` are not.
+
+### File Extensions
+
+**TS-008** — TypeScript source files must use the `.ts` (or `.tsx`) extension. The `.mts` and `.cts` extensions must not be used unless required by a tooling constraint that cannot be resolved another way; in that case, the constraint must be documented in a comment at the top of the file.
+
+### Package Manager
+
+**TS-002** — All TypeScript and JavaScript projects must use [pnpm](https://pnpm.io/). npm is not allowed. `package-lock.json` files must not be committed.
+
+**TS-010** — The root `package.json` of the workspace must not declare `dependencies` or `devDependencies`. It is reserved for workspace-level configuration (`packageManager`, `pnpm` settings, catalogs, scripts). Dependencies must be declared in the individual project `package.json` that consumes them, using `catalog:` references where applicable.
+
+**TS-015** — Adding a dependency does not by itself warrant a review comment, and you must not ask the author to "confirm" or pre-approve a new dependency. The only dependency concern in this repository is the **runtime bundle size of the deployed artifact** (e.g. an AWS Lambda, ECS, or Kubernetes image) — never CI duration, install time, or repository size. Therefore:
+
+- Do **not** flag a `devDependencies` addition on bundle-size, CI-impact, or "confirm first" grounds. Dev-only packages (test, build, and tooling dependencies such as `testcontainers`, `vitest`, and `@types/*`) are never included in a deployed runtime bundle, so their size is irrelevant.
+- Only raise a dependency concern when a package is added to a project's runtime `dependencies` **and** that project is bundled and deployed **and** the package is large enough to materially affect the deployed artifact's size. Even then, cite this rule and frame it as a `should`-level suggestion, not a required change.
+
+### Formatting and Linting
+
+**TS-009** — All TypeScript projects must use [Biome](https://biomejs.dev/) for formatting and linting. The repository is migrating off the legacy Prettier + ESLint toolchain (**TS-003**, **TS-004**, **TS-006**); every new project, and any project being modified that has not yet migrated, must use Biome. A Biome project must:
+
+- contain a `biome.json` configuration file;
+- set its `prebuild` script to `biome check` (this satisfies the `prebuild` requirement in **TS-005**);
+- depend on `@biomejs/biome` and **not** retain `.prettierrc`, `.prettierignore`, `eslint.config.mjs`, or the `prettier` / `eslint` / `@eslint/js` / `typescript-eslint` dev dependencies.
+
+A project must use exactly one toolchain: a Biome project must not also carry Prettier/ESLint config files, and a not-yet-migrated Prettier/ESLint project must not carry a `biome.json`.
+
+#### Legacy: Prettier (deprecated)
+
+**TS-003** — _Deprecated; superseded by **TS-009**._ Prettier has been replaced by Biome. New projects must not add Prettier. A project that has not yet migrated keeps its existing `.prettierrc`, which must contain at least the following until it is removed during migration:
+
+```json
+{
+  "singleQuote": true,
+  "quoteProps": "consistent",
+  "bracketSpacing": false
+}
+```
+
+#### Legacy: ESLint (deprecated)
+
+**TS-004** — _Deprecated; superseded by **TS-009**._ ESLint has been replaced by Biome. New projects must not add ESLint. A project that has not yet migrated keeps its existing `eslint.config.mjs`, which must include at minimum the following until it is removed during migration:
+
+```js
+eslint.configs.recommended,
+tseslint.configs.recommended,
+```
+
+### package.json Scripts
+
+**TS-005** — All `package.json` files inside a TypeScript project must define at minimum the following scripts: `prebuild`, `build`, `test`, `clean`, `fmt` and `reset`.
+
+**TS-006** — _Deprecated; superseded by **TS-009**._ New and migrated projects use `"prebuild": "biome check"`. A project that has not yet migrated off Prettier + ESLint keeps its `prebuild` script as:
+
+```json
+"prebuild": "prettier --check . && eslint ."
+```
+
+### Validation Library
+
+**TS-007** — All TypeScript projects must use [valibot](https://valibot.dev/) for schema validation. Zod must not be used.
+
+**TS-012** — A valibot field that is both optional and nullable must use `v.nullish(...)` rather than chaining `v.optional(v.nullable(...))`. The two are equivalent, but `v.nullish` is the canonical single-wrapper form.
+
+Example — prefer:
+
+```ts
+invoiceTotal: v.nullish(v.pipe(v.string(), amountValidator)),
+```
+
+over:
+
+```ts
+invoiceTotal: v.optional(v.nullable(v.pipe(v.string(), amountValidator))),
+```
+
+**TS-013** — Data normalization (trimming, lowercasing, canonicalizing, defaulting, coercing) should generally be handled inside the valibot schema with `v.transform` rather than in ad-hoc helper functions scattered across call sites. The schema is the single source of truth: the raw, pre-normalization shape is the schema's `v.InferInput` type and the normalized shape it produces is its `v.InferOutput` type. Both types must be exported alongside the schema (see **GQL-002**, **GQL-003**), and downstream code must consume the `InferOutput` value (e.g. the result of `v.parse` / `safeParse`) rather than re-normalizing the input itself. When the same normalized value is needed in more than one place (for example, validating a write and later comparing a lookup against it), reuse the one exported schema in every path so the normalization cannot drift.
+
+Example — normalize in the schema, not at the call site:
+
+```ts
+// origin URL is trimmed by nonEmptyString, then canonicalized to its origin
+// serialization; callers receive the normalized form via InferOutput.
+export function originUrlSchema(locale?: Locale) {
+  return v.pipe(
+    nonEmptyString(locale),
+    v.check((value) => isValidOrigin(value), m.v_invalidUrl({}, { locale })),
+    v.transform((value) => new URL(value).origin),
+  );
+}
+export type OriginUrlSchemaInput = v.InferInput<
+  ReturnType<typeof originUrlSchema>
+>;
+export type OriginUrlSchemaOutput = v.InferOutput<
+  ReturnType<typeof originUrlSchema>
+>;
+```
+
+### Client Libraries
+
+**TS-011** — API client packages under `clients/` must support tree-shaking. A client package must:
+
+- be ESM (`"type": "module"`) and declare `"sideEffects": false` in its `package.json`;
+- expose each API module as a subpath export (e.g. `@nr1e/plaid/transfer`) in addition to the root export;
+- implement each operation as a standalone exported function (one operation per file) that takes the client as its first argument — not as a method on a class;
+- have zero runtime dependencies, using native `fetch` for HTTP;
+- not perform side effects at module scope;
+- use string-literal union types instead of TypeScript `enum`s, which emit runtime objects that cannot be tree-shaken.
+
+### Testing
+
+**TS-014** — The `@int` tag is reserved for tests that communicate with an external service that **cannot** be run inside the CI/CD pipeline — for example a live third-party API or a real cloud account. Only those tests are integration tests for this purpose: they must include `@int` in the test name, are excluded from the default `test` script, and run via a separate `test:int` script.
+
+A test that stands up its own dependency locally — most commonly via [Testcontainers](https://testcontainers.com/) (e.g. DynamoDB Local) — is **not** an `@int` test. Such tests run inside CI like any other test, must **not** be tagged `@int`, and run under the normal `test` script. Do not tag a test `@int` merely because it is out-of-process or uses a container; tag it only when the dependency it talks to cannot be provisioned in CI.
+
+---
+
+## Python
+
+### Style Guide
+
+**PY-001** — All Python code must follow the [PEP 8](https://peps.python.org/pep-0008/) style guide.
+
+---
+
+## GraphQL
+
+### Type Conventions
+
+The following type conventions apply when working with GraphQL.
+
+#### "Schema" type
+
+**GQL-001** — Valibot schemas are defined in the client for all "input" types. They should end in `Schema`. So if you have an input in your GraphQL schema defined as `CreateUserInput`, you will get a generated interface called `CreateUserInput` from gqty. You would then create a schema called `CreateUserInputSchema`.
+
+#### "SchemaInput" type
+
+**GQL-002** — You must create an input type for each Valibot schema.
+
+Example:
+
+```ts
+type CreateUserInputSchemaInput = v.InferInput<typeof CreateUserInputSchema>;
+```
+
+#### "SchemaOutput" type
+
+**GQL-003** — You must create an output type for each Valibot schema.
+
+Example:
+
+```ts
+type CreateUserInputSchemaOutput = v.InferOutput<typeof CreateUserInputSchema>;
+```
+
+**GQL-004** — All input types should be validated before being used inside the GraphQL resolver functions.
+
+#### "Detail" type
+
+**GQL-005** — For DynamoDB records using a `Detail` field, a type ending in `Detail` should be created. So if you have a `createUser` GraphQL mutation that stores a user object in the `Detail` field of a DynamoDB record, you should have a type defined as `UserDetail`.
+
+#### "View" type
+
+**GQL-006** — You should have operational types defined for gqty client functions that call mutations and queries on the GraphQL API. So if you have a function called `getUser`, you should have a return type called `UserView`.
+
+### Relay Specification
+
+Reference these Relay docs when reviewing or generating GraphQL schema changes:
+
+- https://relay.dev/graphql/connections.htm
+- https://relay.dev/docs/guides/graphql-server-specification/
+
+**GQL-007** — GraphQL fields that expose paginated collections must follow the Relay Cursor Connections Specification. Do not introduce raw list fields for paginated data when a Relay connection should be used instead.
+
+**GQL-008** — Relay connection types must end in `Connection` and expose `edges` plus a non-null `pageInfo` field. `pageInfo` must use the Relay `PageInfo` shape.
+
+**GQL-009** — Relay edge types must end in `Edge` and expose a `node` field plus a non-null `cursor` field. Cursors must be treated as opaque values.
+
+**GQL-010** — Relay connection fields must accept Relay pagination arguments: `first` and `after` for forward pagination, and `last` and `before` for backward pagination.
+
+**GQL-011** — Types intended for Relay-style refetching must implement the `Node` interface and expose a globally unique `id: ID!`. Schemas that add Relay node types should also provide the root `node(id: ID!)` field required for refetching.
+
+### Public API Compatibility
+
+**GQL-012** — Changes to public graph APIs must be backward-compatible. Do not remove or narrow existing fields, arguments, enum values, or types in ways that break existing clients; prefer additive changes and deprecate old API surface before removal.
+
+### Validation Placement
+
+**GQL-013** — Input validation must live in the client package that corresponds to the graph component, never inline in the server/resolver code. The architectural intent is that the **same** validation is shared between the frontend and the backend: the frontend client validates user input before sending a request, and the server re-validates the same input with the same schema (see **GQL-004**), so both reject the same inputs for the same reasons. Each component's valibot input schemas (per **GQL-001**) are defined once in its client and imported by the server rather than redefined there.
+
+Which client a schema belongs in follows where the graph component itself lives:
+
+- **Shared graph components** — those in `lib/src/graph` — pair with the shared client `@nr1e/client` (e.g. `@nr1e/client/origin`).
+- **Project-specific (non-shared) graph queries and mutations** pair with that project's own client packages: `<project>/client-public` for operations on the project's public graph and `<project>/client-private` for operations on its private graph (e.g. `@upgility/client/workspace` for a public workspace operation). They must not go in `@nr1e/client`, and not in the graph package.
+
+Reusing the catalog `valibot` and the shared `@nr1e/commons/valibot` helpers keeps the schemas consistent across packages.
+
+### Global ID Format
+
+**GQL-014** — Relay global IDs (the `id: ID!` required by **GQL-011**) must be formatted as `<category><ksuid>`, where `<category>` is a short two- or three-letter code identifying the node type and `<ksuid>` is the record's KSUID. Clients must treat the global ID as an opaque value; the category prefix is for server-side type routing only. Concatenating the category with the KSUID makes each ID self-describing to the server and globally unique across types. Each node type must use a distinct category code, and a type's category code must never change once assigned.
+
+Example — a `Payment` node (category `pmt`) and a `PaymentPlan` node (category `ppl`):
+
+```
+pmt2Nc8xVQ1rL9mKZ4tYbWpEjHq
+ppl2Nc8xVQ1rL9mKZ4tYbWpEjHq
+```
+
+---
+
+## AWS CDK
+
+### Library
+
+**CDK-001** — All AWS CDK code must use [`truemark-cdk-lib`](https://github.com/truemark/public/tree/main/cdk) constructs where available in addition to `aws-cdk-lib`. Prefer `truemark-cdk-lib` wrappers over raw `aws-cdk-lib` constructs when both exist.
+
+### Stacks
+
+**CDK-002** — CDK stacks must extend `ExtendedStack` from `truemark-cdk-lib/aws-cdk`, not `Stack` from `aws-cdk-lib`. Props interfaces must extend `ExtendedStackProps`, not `StackProps`.
+
+Example:
+
+```ts
+import {ExtendedStack, ExtendedStackProps} from 'truemark-cdk-lib/aws-cdk';
+
+export interface MyStackProps extends ExtendedStackProps {
+  // ...
+}
+
+export class MyStack extends ExtendedStack {
+  constructor(scope: Construct, id: string, props: MyStackProps) {
+    super(scope, id, props);
+    // ...
+  }
+}
+```
+
+### Stages
+
+**CDK-003** — CDK stages must extend `ExtendedStage` from `truemark-cdk-lib/aws-cdk`, not `Stage` from `aws-cdk-lib`. Props interfaces must extend `ExtendedStageProps`, not `StageProps`.
+
+Example:
+
+```ts
+import {ExtendedStage, ExtendedStageProps} from 'truemark-cdk-lib/aws-cdk';
+
+export interface MyStageProps extends ExtendedStageProps {
+  // ...
+}
+
+export class MyStage extends ExtendedStage {
+  constructor(scope: Construct, id: string, props: MyStageProps) {
+    super(scope, id, props);
+    // ...
+  }
+}
+```
+
+### Lambda Runtimes
+
+**CDK-004** — Lambda functions must use the latest supported Node.js runtime (currently `Runtime.NODEJS_24_X`). Older runtimes such as `Runtime.NODEJS_20_X` and `Runtime.NODEJS_22_X` must not be used for new or updated functions.
+
+### Cross-Stack Parameters
+
+**CDK-006** — Do not use `CfnOutput` to pass variables between stacks. Use the `exportParameter` method provided by `ExtendedStack` (from `truemark-cdk-lib`), which stores the value in SSM Parameter Store and can be consumed by other stacks without creating CloudFormation export/import coupling.
+
+Example:
+
+```ts
+// In the producing stack (extends ExtendedStack)
+this.exportParameter(MyStackParameterExport.ApiUrl, api.graphqlUrl);
+```
+
+### Imports
+
+**CDK-005** — CDK code must use named imports instead of namespace imports. Avoid `import * as ...` unless it is required to resolve a naming conflict.
+
+Example — prefer:
+
+```ts
+import {Duration} from 'aws-cdk-lib';
+import {Architecture, Runtime} from 'aws-cdk-lib/aws-lambda';
+```
+
+over:
+
+```ts
+import * as cdk from 'aws-cdk-lib';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+```
+
+---
+
+## DynamoDB
+
+### Data Access
+
+**DDB-001** — DynamoDB access must go through [`dynamodb-toolbox`](https://www.dynamodbtoolbox.dev/) `Table` and `Entity` constructs and their actions (e.g. `GetItemCommand`, `PutItemCommand`, `UpdateItemCommand`, `QueryCommand`). Do not issue direct calls against the raw AWS SDK clients (`@aws-sdk/client-dynamodb` or `@aws-sdk/lib-dynamodb` `DynamoDBDocumentClient`) for reads or writes when a `dynamodb-toolbox` equivalent exists. Reach for the raw SDK only when `dynamodb-toolbox` does not support the operation (for example, table administration or a control-plane API it does not wrap); when you do, keep it to that operation and cite the reason in a comment.
+
+
+
+**QWIK-001** — `routeLoader$()` must be declared in route boundary files (`layout.tsx`, `index.tsx`, or `plugin.tsx`) inside the `src/routes` directory. It must not be declared in component files outside of `src/routes`, nor in route files with any other name.
+
+---
+
+## Lit
+
+### Property and Attribute Naming
+
+**LIT-001** — Lit components use kebab-case for HTML element names and attributes; the TypeScript properties they map to are camelCase. The idiomatic pattern is therefore: camelCase property in TypeScript, kebab-case attribute in HTML, and an explicit `attribute: 'my-attribute'` in the `@property` decorator whenever the property name is multi-word. Lit lower-cases multi-word camelCase properties by default (e.g. `myProp` → `myprop`), which silently breaks attribute-driven usage; the explicit `attribute` option keeps the HTML form readable and matches the standard custom-elements convention.
+
+Example — prefer:
+
+```ts
+@property({attribute: 'my-attribute'})
+myAttribute = '';
+```
+
+over:
+
+```ts
+@property()
+myAttribute = '';
+```
+
+### Event Naming
+
+**LIT-002** — The canonical name of every event dispatched from a native web component must be kebab-case. This matches the convention used by built-in DOM events (e.g. `click`, `input`, `pointerdown`) and keeps event names consistent with the kebab-case attribute and element naming used elsewhere in the platform. A component may additionally dispatch a legacy camelCase alias of the same event for backward compatibility with existing integrations; when it does, both forms must be emitted together with the same `detail` so external listeners on either name observe identical behavior. Legacy aliases should be removed once all known consumers have migrated to the kebab-case name.
+
+Example — prefer:
+
+```ts
+this.dispatchEvent(new CustomEvent('value-changed', {detail: value}));
+```
+
+over:
+
+```ts
+this.dispatchEvent(new CustomEvent('valueChanged', {detail: value}));
+```
+
+Allowed when an external integration still listens for the legacy name:
+
+```ts
+this.dispatchEvent(new CustomEvent('value-changed', {detail: value}));
+// Legacy alias — remove once consumers migrate.
+this.dispatchEvent(new CustomEvent('valueChanged', {detail: value}));
+```
+
+---
+
+## User Interface
+
+### Styling
+
+**UI-001** — User interfaces must be styled with [Tailwind CSS](https://tailwindcss.com/) utilities and [daisyUI](https://daisyui.com/) component classes. Do not write vanilla CSS when a Tailwind or daisyUI equivalent exists, and do not ship hand-written stylesheets for component styling. Reach for raw CSS only where no utility/component equivalent applies (for example, defining a daisyUI theme, a Tailwind `@custom-variant`, or configuring a plugin); when you do, keep it to that configuration and cite the reason.
