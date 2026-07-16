@@ -17,6 +17,8 @@ cdk.out
 .claude/*
 !.claude/commands/
 !.claude/settings.json
+# This repo publishes its agent skills, so they are tracked.
+!.claude/skills/
 .claude/settings.local.json
 
 # Vite
