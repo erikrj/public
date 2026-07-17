@@ -1,0 +1,15 @@
+packages:
+  - "tools/*"
+  - "!**/dist/**"
+catalog:
+  "@aws-sdk/client-s3": "3.958.0"
+  "@aws-sdk/client-sts": "3.958.0"
+  "@aws-sdk/client-transcribe": "3.958.0"
+  "@aws-sdk/lib-storage": "3.958.0"
+  "@biomejs/biome": "2.5.0"
+  "@types/node": "^24.10.13"
+  "typescript": "^6.0.2"
+  "valibot": "^1.3.1"
+  "vitest": "^4.1.5"
+allowBuilds:
+  esbuild: true
