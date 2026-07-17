@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.07.16.0650
+  version: 2026.07.16.1909
 ---
 
 # Copilot Instructions
@@ -53,6 +53,16 @@ Additional domains will be added over time. New rules within a domain are append
 ### Distributed Agent Files
 
 **GEN-005** — Agent skills (files under `.claude/skills/`) and this `.github/copilot-instructions.md` file are **distributed copies**: each declares its upstream in a `metadata.source` frontmatter field, and downstream repositories re-sync from that source via the `skills-update` skill. Any change to these files must be made in the **authoritative source** identified by `metadata.source`, never by editing the local downstream copy. A local edit diverges from the source and is silently overwritten the next time the file is synced. If a fix or improvement is needed, make it in the source repository and re-sync — do not patch the copy in place.
+
+### Skill Frontmatter
+
+**GEN-006** — Every agent skill (a `SKILL.md` under `.claude/skills/<name>/`) must begin with YAML frontmatter, and that frontmatter must include a `metadata` block declaring `owner`, `source`, and `version`:
+
+- `owner` — the person or team responsible for the skill (e.g. `Erik Jensen (@erikrj)`).
+- `source` — the authoritative GitHub URL the skill is published from and synced from (see **GEN-005**), e.g. `https://github.com/erikrj/public/tree/main/.claude/skills/<name>`.
+- `version` — a `YYYY.MM.DD.HHMM` timestamp identifying the published revision, bumped whenever the skill changes.
+
+A skill whose `SKILL.md` is missing its frontmatter, the `metadata` block, or any of these three fields must be flagged.
 
 ---
 
