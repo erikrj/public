@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.07.16.1909
+  version: 2026.07.18.1104
 ---
 
 # Copilot Instructions
@@ -52,7 +52,7 @@ Additional domains will be added over time. New rules within a domain are append
 
 ### Distributed Agent Files
 
-**GEN-005** — Agent skills (files under `.claude/skills/`) and this `.github/copilot-instructions.md` file are **distributed copies**: each declares its upstream in a `metadata.source` frontmatter field, and downstream repositories re-sync from that source via the `skills-update` skill. Any change to these files must be made in the **authoritative source** identified by `metadata.source`, never by editing the local downstream copy. A local edit diverges from the source and is silently overwritten the next time the file is synced. If a fix or improvement is needed, make it in the source repository and re-sync — do not patch the copy in place.
+**GEN-005** — Agent skills (files under `.claude/skills/`) and this `.github/copilot-instructions.md` file declare their upstream in a `metadata.source` frontmatter field, and downstream repositories re-sync from that source via the `skills-update` skill. This rule applies **only to downstream copies** — a repository whose `metadata.source` points at a **different** repository. In a downstream copy, any change must be made in the **authoritative source** identified by `metadata.source`, never by editing the local copy, because a local edit diverges from the source and is silently overwritten on the next sync; make the fix in the source repository and re-sync instead of patching the copy in place. **Do not flag edits in the authoritative source itself.** When `metadata.source` points at the repository being reviewed (the file is the original, not a synced copy — e.g. this repo is the source for its own `.github/copilot-instructions.md` and `.claude/skills/`), editing the file directly is the correct and intended way to make the change, including version bumps; GEN-005 does not apply.
 
 ### Skill Frontmatter
 
@@ -184,6 +184,26 @@ export type OriginUrlSchemaOutput = v.InferOutput<
 **TS-014** — The `@int` tag is reserved for tests that communicate with an external service that **cannot** be run inside the CI/CD pipeline — for example a live third-party API or a real cloud account. Only those tests are integration tests for this purpose: they must include `@int` in the test name, are excluded from the default `test` script, and run via a separate `test:int` script.
 
 A test that stands up its own dependency locally — most commonly via [Testcontainers](https://testcontainers.com/) (e.g. DynamoDB Local) — is **not** an `@int` test. Such tests run inside CI like any other test, must **not** be tagged `@int`, and run under the normal `test` script. Do not tag a test `@int` merely because it is out-of-process or uses a container; tag it only when the dependency it talks to cannot be provisioned in CI.
+
+### Presence Checks
+
+**TS-016** — Do not use a truthiness check (`!value` or `if (value)`) to test whether a **numeric or boolean** field is present, because `0` and `false` are valid values that a truthiness check wrongly treats as missing. Use an explicit nullish check (`value == null`, or `value === undefined` / `value === null`) instead. This applies wherever a nullable/optional number or boolean is validated, defaulted, or branched on. String presence checks that intentionally reject the empty string are exempt, but must be written explicitly (e.g. `value === ''`) rather than relying on truthiness, so the intent is clear.
+
+Example — prefer:
+
+```ts
+if (owner.percentageOwnership == null) {
+  throw new Error('Application missing owner percentage ownership');
+}
+```
+
+over:
+
+```ts
+if (!owner.percentageOwnership) {
+  throw new Error('Application missing owner percentage ownership');
+}
+```
 
 ---
 
