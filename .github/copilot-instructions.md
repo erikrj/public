@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.07.18.1052
+  version: 2026.07.18.1104
 ---
 
 # Copilot Instructions
@@ -52,7 +52,7 @@ Additional domains will be added over time. New rules within a domain are append
 
 ### Distributed Agent Files
 
-**GEN-005** — Agent skills (files under `.claude/skills/`) and this `.github/copilot-instructions.md` file are **distributed copies**: each declares its upstream in a `metadata.source` frontmatter field, and downstream repositories re-sync from that source via the `skills-update` skill. Any change to these files must be made in the **authoritative source** identified by `metadata.source`, never by editing the local downstream copy. A local edit diverges from the source and is silently overwritten the next time the file is synced. If a fix or improvement is needed, make it in the source repository and re-sync — do not patch the copy in place.
+**GEN-005** — Agent skills (files under `.claude/skills/`) and this `.github/copilot-instructions.md` file declare their upstream in a `metadata.source` frontmatter field, and downstream repositories re-sync from that source via the `skills-update` skill. This rule applies **only to downstream copies** — a repository whose `metadata.source` points at a **different** repository. In a downstream copy, any change must be made in the **authoritative source** identified by `metadata.source`, never by editing the local copy, because a local edit diverges from the source and is silently overwritten on the next sync; make the fix in the source repository and re-sync instead of patching the copy in place. **Do not flag edits in the authoritative source itself.** When `metadata.source` points at the repository being reviewed (the file is the original, not a synced copy — e.g. this repo is the source for its own `.github/copilot-instructions.md` and `.claude/skills/`), editing the file directly is the correct and intended way to make the change, including version bumps; GEN-005 does not apply.
 
 ### Skill Frontmatter
 
