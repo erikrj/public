@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.07.16.1909
+  version: 2026.07.18.1052
 ---
 
 # Copilot Instructions
@@ -184,6 +184,26 @@ export type OriginUrlSchemaOutput = v.InferOutput<
 **TS-014** — The `@int` tag is reserved for tests that communicate with an external service that **cannot** be run inside the CI/CD pipeline — for example a live third-party API or a real cloud account. Only those tests are integration tests for this purpose: they must include `@int` in the test name, are excluded from the default `test` script, and run via a separate `test:int` script.
 
 A test that stands up its own dependency locally — most commonly via [Testcontainers](https://testcontainers.com/) (e.g. DynamoDB Local) — is **not** an `@int` test. Such tests run inside CI like any other test, must **not** be tagged `@int`, and run under the normal `test` script. Do not tag a test `@int` merely because it is out-of-process or uses a container; tag it only when the dependency it talks to cannot be provisioned in CI.
+
+### Presence Checks
+
+**TS-016** — Do not use a truthiness check (`!value` or `if (value)`) to test whether a **numeric or boolean** field is present, because `0` and `false` are valid values that a truthiness check wrongly treats as missing. Use an explicit nullish check (`value == null`, or `value === undefined` / `value === null`) instead. This applies wherever a nullable/optional number or boolean is validated, defaulted, or branched on. String presence checks that intentionally reject the empty string are exempt, but must be written explicitly (e.g. `value === ''`) rather than relying on truthiness, so the intent is clear.
+
+Example — prefer:
+
+```ts
+if (owner.percentageOwnership == null) {
+  throw new Error('Application missing owner percentage ownership');
+}
+```
+
+over:
+
+```ts
+if (!owner.percentageOwnership) {
+  throw new Error('Application missing owner percentage ownership');
+}
+```
 
 ---
 
