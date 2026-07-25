@@ -64,12 +64,6 @@ Additional domains will be added over time. New rules within a domain are append
 
 A skill whose `SKILL.md` is missing its frontmatter, the `metadata` block, or any of these three fields must be flagged.
 
-### Skill Description Accuracy
-
-**GEN-009** — When a `SKILL.md` body changes what the skill does, its frontmatter `description` must be updated in the same change to match. The description is the only text shown in the command list and in the model's skill listing, so a stale one causes the skill to be invoked for the wrong task or skipped for the right one — a failure that never surfaces when reading the skill itself, only when something else picks it.
-
-Treat these as description-affecting changes: gaining or losing an outcome (e.g. a skill that only fixed things now also rejects them), a change of scope (operating on a narrower or wider set of inputs), or a change in what the skill refuses to do. Reformatting, clarifying, or adding detail to an existing documented behavior does not require a description change. Flag a body change that adds or removes a documented behavior while the `description` line is untouched.
-
 ### Paginated CLI Output
 
 **GEN-007** — When a shell snippet counts or aggregates results from `gh api --paginate`, the aggregation must not be performed inside the `--jq` filter. `gh` applies `--jq` to **each page separately** and concatenates the outputs, so a filter ending in `| length` emits one number *per page* (`"1\n0\n0\n1"`), not one total. Any numeric test on that value then fails with a non-integer expression error, and — because the failure looks like "no results" — the bug stays invisible until the data grows past a single page.
@@ -91,6 +85,12 @@ The same applies to any `--jq` filter whose result is a scalar summary (`length`
 **GEN-008** — A `deny` rule in `.claude/settings.json` must not be relied on to block a command that can express the same operation with its flags in a different position. Permission rules match the command string from the left: a rule written without a wildcard (`Bash(git push)`) matches that command **exactly**, and a rule ending in `:*` or `*` (`Bash(gh api -X:*)`) matches commands that **begin** with that prefix. Neither form can express "this flag anywhere in the command", so `Bash(gh api -X:*)` does not block `gh api repos/o/r/pulls/1/merge -X PUT`, and `Bash(git push --force:*)` does not block `git push origin HEAD --force`.
 
 Where a capability must actually be withheld, narrow the **allow** list to the exact invocations that are needed rather than denying the ways around it — an unmatched command prompts, which is the safe default. Deny rules remain useful as a guard against the common literal form, but documentation must not describe them as a boundary. When a broad allow rule is genuinely required (e.g. `Bash(gh api:*)`, whose paths vary per call), say plainly what it permits and what actually constrains it.
+
+### Skill Description Accuracy
+
+**GEN-009** — When a `SKILL.md` body changes what the skill does, its frontmatter `description` must be updated in the same change to match. The description is the only text shown in the command list and in the model's skill listing, so a stale one causes the skill to be invoked for the wrong task or skipped for the right one — a failure that never surfaces when reading the skill itself, only when something else picks it.
+
+Treat these as description-affecting changes: gaining or losing an outcome (e.g. a skill that only fixed things now also rejects them), a change of scope (operating on a narrower or wider set of inputs), or a change in what the skill refuses to do. Reformatting, clarifying, or adding detail to an existing documented behavior does not require a description change. Flag a body change that adds or removes a documented behavior while the `description` line is untouched.
 
 ---
 
