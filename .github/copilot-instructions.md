@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.07.25.1426
+  version: 2026.07.25.1432
 ---
 
 # Copilot Instructions
@@ -139,6 +139,12 @@ reviewThreads(first: 100, after: $endCursor) {
 ```
 
 The query must also declare `$endCursor: String` in its variable list. Note that `--paginate` emits **one JSON document per page**, so collect nodes across pages (`jq -s '[.[].data…nodes[]]'`) before counting or filtering — the same aggregation trap as **GEN-007**. Apply this wherever a truncated result would be read as authoritative: counts, completeness checks, and any audit that reports "nothing found".
+
+### Pull Request Descriptions
+
+**GEN-013** — A pull request's title and description must describe the change as it stands at review time, not as it was first proposed. This repository squash-merges, so the PR title and body become the commit message on `main` — a claim that was true in the first push and falsified by a later one does not merely mislead a reviewer, it lands in the permanent history of the default branch, where nothing later corrects it.
+
+Re-read the description whenever the diff changes materially: a behavior removed, a mechanism replaced, a file no longer touched, a rationale that no longer holds. Flag any statement in the description that the final diff contradicts, quoting both. This applies with equal force to claims about configuration and security posture, where a reviewer is most likely to trust the summary instead of re-deriving it from the diff.
 
 ---
 
