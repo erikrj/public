@@ -5,7 +5,7 @@ allowed-tools: Bash(gh:*), Bash(jq:*), Read, Edit, Write, Grep, Glob
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-comments-fix
-  version: 2026.07.24.2236
+  version: 2026.07.25.0917
 ---
 
 Fetch every comment on the GitHub pull request associated with the **current branch**, decide which ones identify a real problem, and fix those. Comments that do not identify a real problem are recorded as rejected with a reason, so `pr-comments-resolve` can close them out on GitHub — a review cycle only terminates if wrong comments have a path to closed.
@@ -47,10 +47,14 @@ This skill only edits code in the working tree — it does **not** commit, push,
      ' -F owner={owner} -F repo={repo} -F number={number}
      ```
 
-3. Build the actionable list. For each comment, capture the **author**, **file path** and **line** (for inline comments), the **body** (verbatim), the comment's **databaseId**, and the thread's **resolved / outdated** status.
+3. Build the actionable list. For each comment, capture the **author**, **file path** and **line** (for inline comments), the **body** (verbatim), the thread's **root comment databaseId**, and the thread's **resolved / outdated** status.
+
+   **Key every entry to the thread's root comment id, not to whichever comment you happened to read.** The REST endpoint in step 2 returns replies alongside root comments — a reply carries `in_reply_to_id` pointing at its thread's root. `pr-comments-resolve` works per *thread* and looks verdicts up by the root id, so an entry keyed to a reply is a verdict it will never find. Replies are context for understanding the request; they are not separate findings. Two consequences worth remembering: the loop's own replies from earlier rounds appear here, and a thread with discussion on it still yields exactly one entry.
+
    - Skip threads already marked **resolved**.
    - Skip review entries whose body is empty AND state is COMMENTED (container records for inline-only reviews).
    - Skip purely informational comments that request no change (e.g. PR overview summaries).
+   - Skip comments authored by the loop itself (replies posted by `pr-comments-resolve` in an earlier round).
 
 4. **Triage every actionable comment into exactly one verdict.** The question is always *"is there a real defect or a real rule violation here?"* — never *"did the reviewer cite a rule code?"*. Reviewers legitimately find bugs, security holes, and correctness problems that no rule in `.github/copilot-instructions.md` covers, and those must be fixed on their own merit. A cited rule code is supporting evidence, not the test.
 

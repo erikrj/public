@@ -30,6 +30,19 @@ Verdicts and reasons are written to `.git/pr-triage-{number}.json` — inside `.
 
 **Rejection is the mechanism that lets the loop terminate.** Before it existed, a false positive could not be fixed (it was wrong) and could not be resolved (nothing was fixed), so it survived every round forever and the cycle could only be ended by a human resolving threads in the GitHub UI.
 
+### Turning findings into rules
+
+Fixing a finding closes it on one PR. If the same class of mistake can be made again anywhere else, fixing it alone means rediscovering it on every future PR — so before committing, the loop asks which of the round's fixes generalize, and appends those to `.github/copilot-instructions.md` as numbered rules.
+
+The line is whether the defect could recur in unrelated code:
+
+- **Generalizes** — a misused CLI flag, a footgun in a config format, an API whose behavior surprises the caller. These become rules.
+- **Does not** — a wrong path, a stale filename, a description that drifted from its own steps. These are one-offs in the diff at hand.
+
+Rules are appended to the matching domain section with the next unused number (numbers are never reused or renumbered), state the wrong and right forms concretely, and bump the file's `metadata.version`. The loop is deliberately conservative here: a rule that fires on subjective judgment produces noise on every future review, which is worse than occasionally re-finding the same thing. Borderline cases are left out and flagged in the report instead.
+
+This is the compounding part of the workflow — each PR that finds something general makes the reviewer smarter on the next one, rather than the loop paying the same tax forever.
+
 ### How the loop stops
 
 | Condition | Meaning |
@@ -37,7 +50,7 @@ Verdicts and reasons are written to `.git/pr-triage-{number}.json` — inside `.
 | **Settled** | No actionable findings, or everything resolved with no code changed. Nothing new for a reviewer to look at. |
 | **Churn** | A comment already rejected in an earlier round was raised again on the same path. Two rejections of the same point means the disagreement is real and belongs to you. |
 | **Escalation** | A finding needs your decision. The round finishes everything else first. |
-| **Round cap** | `pr-review-loop <max-rounds>` rounds completed (default 5). |
+| **Round cap** | `pr-review-loop <max-rounds>` rounds completed (default 20). |
 | **Hard error** | Review request failed, poll timed out, or the push was rejected as non-fast-forward (run `rebase`). |
 
 The loop never force-pushes and never marks the PR ready for review — that stays yours.
@@ -140,11 +153,13 @@ Subcommands are enumerated rather than blanket-allowing `Bash(git *)`. Deny rule
 
 ### What the deny rules can and cannot do
 
-**Permission rules are prefix matches on the command string, so a deny rule only fires when the flag it names appears exactly where the rule puts it.** `Bash(gh api -X:*)` does not match `gh api repos/{owner}/{repo}/pulls/{n}/merge -X PUT`, because that command does not *start* with `gh api -X`. The same is true of `git push origin HEAD --force`. Treat the deny list as a guard against the common, literal form — not as a boundary that cannot be walked around by moving a flag.
+**Permission rules match the command string from the left, and the trailing wildcard decides how much they cover.** A rule written without one — `Bash(git push)` — matches that command *exactly*, so it permits `git push` and nothing else. A rule ending in `:*` — `Bash(gh api -X:*)` — matches any command that *begins* with that prefix.
+
+Neither form can express "this flag anywhere in the command." That is what makes deny rules leaky: `Bash(gh api -X:*)` does not match `gh api repos/{owner}/{repo}/pulls/{n}/merge -X PUT`, because that command does not *start* with `gh api -X` — the flag sits at the end. `Bash(git push --force:*)` misses `git push origin HEAD --force` for the same reason. Treat the deny list as a guard against the common, literal form, not as a boundary that survives a flag being moved.
 
 The control that actually holds is the **narrow allowlist**:
 
-- **`git push` is allowed only as `Bash(git push)` and `Bash(git push -u origin HEAD)`** — the two exact forms `commit-push` and `pr-create` issue. Any other push, with a flag anywhere in it, matches no allow rule and therefore prompts. That is what genuinely keeps the unattended loop away from a force-push, and it does not depend on out-flanking the deny list.
+- **`git push` is allowed only as `Bash(git push)` and `Bash(git push -u origin HEAD)`** — the two exact forms `commit-push` and `pr-create` issue. Both are written without a trailing wildcard, so they match those invocations and nothing longer: any other push, with a flag anywhere in it, matches no allow rule and therefore prompts. That is what genuinely keeps the unattended loop away from a force-push, and unlike the deny list it does not depend on guessing where a flag will sit.
 - **`gh api` is allowed broadly** (`Bash(gh api:*)`), because the loop calls many endpoints and the paths vary per PR. This is a real capability worth understanding: anything reachable over the GitHub REST or GraphQL API is reachable from an allowed `gh api` call. What keeps merges and deletions out of reach is that the skills never issue them, not that the permission layer forbids them.
 
 One deny rule is deliberate rather than defensive: **`git push --force-with-lease`** is the safe form of a force-push and `rebase` uses it as its normal operation. Denying it means `/rebase` prompts once per run instead of force-pushing silently — appropriate for a hand-invoked command that rewrites published history.

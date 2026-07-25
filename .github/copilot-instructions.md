@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.07.18.1104
+  version: 2026.07.25.0913
 ---
 
 # Copilot Instructions
@@ -63,6 +63,28 @@ Additional domains will be added over time. New rules within a domain are append
 - `version` — a `YYYY.MM.DD.HHMM` timestamp identifying the published revision, bumped whenever the skill changes.
 
 A skill whose `SKILL.md` is missing its frontmatter, the `metadata` block, or any of these three fields must be flagged.
+
+### Paginated CLI Output
+
+**GEN-007** — When a shell snippet counts or aggregates results from `gh api --paginate`, the aggregation must not be performed inside the `--jq` filter. `gh` applies `--jq` to **each page separately** and concatenates the outputs, so a filter ending in `| length` emits one number *per page* (`"1\n0\n0\n1"`), not one total. Any numeric test on that value then fails with a non-integer expression error, and — because the failure looks like "no results" — the bug stays invisible until the data grows past a single page.
+
+Emit one line per matching item and aggregate in the shell instead:
+
+```sh
+# wrong — one count per page
+n=$(gh api "$endpoint" --paginate --jq '[.[] | select(...)] | length')
+
+# right — one line per match, counted once
+n=$(gh api "$endpoint" --paginate --jq '.[] | select(...) | .id' | wc -l | tr -d ' ')
+```
+
+The same applies to any `--jq` filter whose result is a scalar summary (`length`, `add`, `max`, `any`) rather than a stream of items. Verify such snippets against a forced multi-page response (`?per_page=1`), not just the single-page case.
+
+### Permission Rules
+
+**GEN-008** — A `deny` rule in `.claude/settings.json` must not be relied on to block a command that can express the same operation with its flags in a different position. Permission rules match the command string from the left: a rule written without a wildcard (`Bash(git push)`) matches that command **exactly**, and a rule ending in `:*` or `*` (`Bash(gh api -X:*)`) matches commands that **begin** with that prefix. Neither form can express "this flag anywhere in the command", so `Bash(gh api -X:*)` does not block `gh api repos/o/r/pulls/1/merge -X PUT`, and `Bash(git push --force:*)` does not block `git push origin HEAD --force`.
+
+Where a capability must actually be withheld, narrow the **allow** list to the exact invocations that are needed rather than denying the ways around it — an unmatched command prompts, which is the safe default. Deny rules remain useful as a guard against the common literal form, but documentation must not describe them as a boundary. When a broad allow rule is genuinely required (e.g. `Bash(gh api:*)`, whose paths vary per call), say plainly what it permits and what actually constrains it.
 
 ---
 

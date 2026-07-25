@@ -7,12 +7,12 @@ arguments: [max-rounds]
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-review-loop
-  version: 2026.07.25.0904
+  version: 2026.07.25.0917
 ---
 
 Run the entire PR review cycle for the **current branch** without a human in the loop: request a Copilot review, wait for it, fix what is real, reject what is not, commit and push, reply on and resolve every thread, then go around again. Stop when the PR has settled, and hand back a report the author can audit in one pass.
 
-`$max-rounds` caps the number of review rounds (default **5**). The cap exists to bound cost and to stop arguments with a reviewer that will not be satisfied — hitting it is a reportable outcome, not a failure to retry harder.
+`$max-rounds` caps the number of review rounds (default **20**). The cap exists to bound cost and to stop arguments with a reviewer that will not be satisfied — hitting it is a reportable outcome, not a failure to retry harder. In practice the loop settles well before the cap; churn and escalation are the conditions that normally end it.
 
 This skill composes the existing single-step skills rather than reimplementing them. Read each referenced `SKILL.md` and follow its steps as written; if one contradicts this file, the referenced skill wins for its own step.
 
@@ -79,25 +79,36 @@ Repeat until a stop condition below is met. Announce the round number before eac
 
 4. **Triage and fix.** Follow `.claude/skills/pr-comments-fix/SKILL.md` in full. Its verdict definitions (`fix` / `reject` / `escalate`) are authoritative — in particular, a finding is judged on whether it identifies a **real defect or rule violation**, not on whether it cites a rule code. It writes the triage record to `.git/pr-triage-{number}.json`.
 
-5. **Commit and push, but only if code actually changed.**
+5. **Codify what generalizes.** Before committing, look at this round's `fix` verdicts and ask which of them describe a mistake that could be made again in any future PR, rather than a one-off in this diff. A finding generalizes when the same class of defect would recur in unrelated code — a misused CLI flag, a footgun in a config format, an API whose behavior surprises the caller. It does **not** generalize when it is specific to this change: a wrong path, a stale filename, a description that drifted from its own steps.
+
+   For each finding that generalizes, add a rule to `.github/copilot-instructions.md`:
+   - Append it to the matching domain section with the **next unused number** in that prefix. Numbers are never reused or renumbered — check the existing rules before choosing one.
+   - State the rule, then show the wrong and right forms concretely. A rule the reviewer cannot mechanically check is not worth adding.
+   - Bump the file's `metadata.version` to the current `YYYY.MM.DD.HHMM`.
+
+   This is what stops the loop from re-fixing the same class of finding on every PR: the rule turns a repeated discovery into a check the reviewer applies up front. Be conservative — a rule that fires on subjective judgment produces noise on every future review, which is worse than the occasional repeat finding. If a finding is borderline, leave it out and note it in the report.
+
+   Record the rule codes added in the round's triage entries so the report can cite them.
+
+6. **Commit and push, but only if code actually changed.**
    ```sh
    git status --porcelain
    ```
    - If there are changes, follow `.claude/skills/commit-push/SKILL.md`. If the push is rejected as non-fast-forward, **stop the loop** and report — do not force-push; the user can run `/rebase`.
    - If there are none, skip this step. Every finding this round was rejected or escalated, so there is nothing new for a reviewer to look at.
 
-6. **Reply and resolve.** Follow `.claude/skills/pr-comments-resolve/SKILL.md` in full. Threads that were fixed get a reply citing the commit; threads that were rejected get a reply stating why, and both are marked resolved. Escalated threads are replied to but left open.
+7. **Reply and resolve.** Follow `.claude/skills/pr-comments-resolve/SKILL.md` in full. Threads that were fixed get a reply citing the commit; threads that were rejected get a reply stating why, and both are marked resolved. Escalated threads are replied to but left open.
 
-7. **Evaluate stop conditions** (below). If none is met, start the next round.
+8. **Evaluate stop conditions** (below). If none is met, start the next round.
 
 ## Stop conditions
 
 Stop the loop and report when any of these holds:
 
-- **Settled** — the round produced no actionable findings, or every finding was resolved and **no code changed** (step 5 was skipped). With nothing new to review, another round would only re-run the same reviewer against the same diff.
+- **Settled** — the round produced no actionable findings, or every finding was resolved and **no code changed** (step 6 was skipped). With nothing new to review, another round would only re-run the same reviewer against the same diff.
 - **Churn** — a comment already rejected in an earlier round has been raised again on the same path with substantially the same content. `pr-comments-fix` flags this from the triage record. Two rejections of the same point means the disagreement is real and belongs to the author, not to another round.
 - **Escalation** — a finding was classified `escalate`. Finish the current round (fix, push, resolve everything else), then stop. An escalation is by definition a decision the loop cannot make.
-- **Round cap** — `$max-rounds` rounds have completed.
+- **Round cap** — `$max-rounds` rounds have completed (default 20).
 - **Hard error** — the review request failed, the poll timed out, or the push was rejected.
 
 Never resolve a thread just to satisfy a stop condition, and never mark the PR ready for review — the PR stays a draft for the author to review and promote.
@@ -108,6 +119,7 @@ Produce one report for the whole run, written to be read by someone who was not 
 
 - The PR URL, how many rounds ran, and which stop condition ended the loop.
 - Per round: findings fixed (with the files touched), findings rejected (with the reason posted), findings escalated, and the commit sha pushed.
+- **Any rules added to `.github/copilot-instructions.md`**, by code, with the finding each came from. These change how every future PR is reviewed, so they need the author's eyes even though nothing in this PR broke.
 - **A consolidated "rejected without a code change" list across all rounds**, each with its file, the reviewer's point, and the reason posted to GitHub. This is the highest-value part of the report — it is every place the loop overrode a reviewer on the author's behalf, and it is what the author should read first.
 - **A consolidated "needs your decision" list** for escalations and churn, with what the disagreement is.
 - Any threads left open and why.

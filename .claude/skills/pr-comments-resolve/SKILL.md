@@ -5,7 +5,7 @@ allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Read, Grep, Glob
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-comments-resolve
-  version: 2026.07.25.0855
+  version: 2026.07.25.0917
 ---
 
 Close out every open **inline review thread** on the GitHub pull request associated with the **current branch**. A thread is closed one of two ways: the change it asked for was made and committed, or it was rejected with a stated reason. Both get a reply and are marked resolved. Only threads that are genuinely unresolvable — the fix is uncommitted, or the point needs the author's decision — are left open.
@@ -67,12 +67,13 @@ This skill does **not** edit code. Run `pr-comments-fix` first to make the chang
 
 6. Reply and resolve.
 
-   For **fixed-and-committed** threads, cite the commit that addressed it:
+   For **fixed-and-committed** threads, cite the commit that addressed it. Derive the sha from the triage entry's **`files[]`** — the files the fix actually touched — not from the path the comment was anchored to:
    ```sh
-   git log -1 --format=%h -- {path}       # short sha that fixed it
+   git log -1 --format=%h -- {files[0]} {files[1]} ...   # short sha that fixed it
    gh api repos/{owner}/{repo}/pulls/{number}/comments/{databaseId}/replies \
      -f body="Fixed in {sha} — {one-line summary of the change}."
    ```
+   A fix frequently lands somewhere other than the commented line — "add a test for this" is fixed in a test file, and a comment on a config value is often fixed in the doc that describes it. Using the commented path alone would then cite an unrelated commit, or find none at all. If the triage record is unavailable, fall back to `git log -1 --format=%h` for the branch tip and say which files changed rather than naming a path-specific sha you cannot verify.
 
    For **rejected** threads, post the recorded reason. The reply must say what was checked and why the comment does not apply, so a human reading the PR later can audit the decision without re-deriving it:
    ```sh
