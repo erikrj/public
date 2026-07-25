@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.07.25.1407
+  version: 2026.07.25.1416
 ---
 
 # Copilot Instructions
@@ -99,6 +99,7 @@ Check the two directions separately, because they fail differently:
 
 - A command in a snippet that is **missing** from `allowed-tools` blocks the skill at runtime.
 - An entry in `allowed-tools` that **no snippet uses** grants the skill more than it needs and should be removed.
+- A command that is declared but **written so it cannot match** is the subtlest of the three, because the declaration looks correct. Since rules match the command string from the left (**GEN-008**), an environment-variable prefix moves the command name out of first position: `SINCE="$x" gh api ...` begins with `SINCE=`, so it matches no `Bash(gh api:*)` rule and prompts despite `gh api` being allowlisted. Write the snippet so the command name comes first and pass values by flag — `gh api ... | jq --arg since "$x" ...` — rather than by env prefix.
 
 When a change adds a command to a snippet, verify it appears in `allowed-tools`, in `settings.json` if the skill runs unattended, and in any documentation that enumerates the allowed commands.
 
