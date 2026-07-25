@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.07.25.1432
+  version: 2026.07.25.1436
 ---
 
 # Copilot Instructions
@@ -138,7 +138,12 @@ reviewThreads(first: 100, after: $endCursor) {
 }
 ```
 
-The query must also declare `$endCursor: String` in its variable list. Note that `--paginate` emits **one JSON document per page**, so collect nodes across pages (`jq -s '[.[].data…nodes[]]'`) before counting or filtering — the same aggregation trap as **GEN-007**. Apply this wherever a truncated result would be read as authoritative: counts, completeness checks, and any audit that reports "nothing found".
+The query must also declare `$endCursor: String` in its variable list. Note that `--paginate` emits **one JSON document per page**, so collect nodes across pages before counting or filtering — the same aggregation trap as **GEN-007**:
+
+```sh
+gh api graphql --paginate -f query='...' -F owner=o -F repo=r -F number=1 \
+  | jq -s '[.[].data.repository.pullRequest.reviewThreads.nodes[]]'
+``` Apply this wherever a truncated result would be read as authoritative: counts, completeness checks, and any audit that reports "nothing found".
 
 ### Pull Request Descriptions
 
