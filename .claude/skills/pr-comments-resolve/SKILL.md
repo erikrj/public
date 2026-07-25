@@ -1,11 +1,11 @@
 ---
 name: pr-comments-resolve
-description: Verify PR comments were fixed and committed, reply on each thread, and mark it resolved
+description: Close out inline PR review threads — verify fixes are committed or apply the recorded rejection, reply on each thread, and mark it resolved
 allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Read, Grep, Glob
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-comments-resolve
-  version: 2026.07.25.0917
+  version: 2026.07.25.0929
 ---
 
 Close out every open **inline review thread** on the GitHub pull request associated with the **current branch**. A thread is closed one of two ways: the change it asked for was made and committed, or it was rejected with a stated reason. Both get a reply and are marked resolved. Only threads that are genuinely unresolvable — the fix is uncommitted, or the point needs the author's decision — are left open.
@@ -49,14 +49,15 @@ This skill does **not** edit code. Run `pr-comments-fix` first to make the chang
 
 5. Determine each thread's outcome. Never resolve a thread on the strength of a working-tree edit — the change must be **present in a commit on the current branch**.
 
-   For **fix** verdicts, verify before touching the thread:
-   - Read the referenced file and surrounding context to confirm the change the comment asked for is in fact present.
-   - Confirm it is committed, not a pending edit:
-     ```sh
-     git status --porcelain {path}          # must be clean for that file
-     git log --oneline -5 -- {path}         # the fixing commit should be here
-     git log -p -1 -- {path}                # inspect the change if needed
-     ```
+   For **fix** verdicts, verify before touching the thread. Verify against the triage entry's **`files[]`** — the files the fix actually touched — falling back to `{path}` only when the triage record is missing:
+   ```sh
+   git status --porcelain {files...}      # must be clean for those files
+   git log --oneline -5 -- {files...}     # the fixing commit should be here
+   git log -p -1 -- {files...}            # inspect the change if needed
+   ```
+   Read those files and their surrounding context to confirm the change the comment asked for is in fact present.
+
+   Checking only `{path}` would misclassify every cross-file fix as **not-fixed** and leave its thread open — the same reason step 6 derives the cited sha from `files[]`. A comment asking for a test is satisfied in a test file, not at the line it was anchored to.
 
    Classify each thread as:
    - **fixed-and-committed** — the change is present and committed → reply + resolve.

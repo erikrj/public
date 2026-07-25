@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.07.25.0913
+  version: 2026.07.25.0929
 ---
 
 # Copilot Instructions
@@ -63,6 +63,12 @@ Additional domains will be added over time. New rules within a domain are append
 - `version` — a `YYYY.MM.DD.HHMM` timestamp identifying the published revision, bumped whenever the skill changes.
 
 A skill whose `SKILL.md` is missing its frontmatter, the `metadata` block, or any of these three fields must be flagged.
+
+### Skill Description Accuracy
+
+**GEN-009** — When a `SKILL.md` body changes what the skill does, its frontmatter `description` must be updated in the same change to match. The description is the only text shown in the command list and in the model's skill listing, so a stale one causes the skill to be invoked for the wrong task or skipped for the right one — a failure that never surfaces when reading the skill itself, only when something else picks it.
+
+Treat these as description-affecting changes: gaining or losing an outcome (e.g. a skill that only fixed things now also rejects them), a change of scope (operating on a narrower or wider set of inputs), or a change in what the skill refuses to do. Reformatting, clarifying, or adding detail to an existing documented behavior does not require a description change. Flag a body change that adds or removes a documented behavior while the `description` line is untouched.
 
 ### Paginated CLI Output
 

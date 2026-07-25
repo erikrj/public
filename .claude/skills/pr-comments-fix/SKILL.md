@@ -1,11 +1,11 @@
 ---
 name: pr-comments-fix
-description: Fetch the GitHub PR comments for the current branch and fix the code to resolve them
+description: Triage the GitHub PR comments for the current branch into fix / reject / escalate, apply the fixes, and record every verdict with its reason
 allowed-tools: Bash(gh:*), Bash(jq:*), Read, Edit, Write, Grep, Glob
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-comments-fix
-  version: 2026.07.25.0917
+  version: 2026.07.25.0929
 ---
 
 Fetch every comment on the GitHub pull request associated with the **current branch**, decide which ones identify a real problem, and fix those. Comments that do not identify a real problem are recorded as rejected with a reason, so `pr-comments-resolve` can close them out on GitHub — a review cycle only terminates if wrong comments have a path to closed.
