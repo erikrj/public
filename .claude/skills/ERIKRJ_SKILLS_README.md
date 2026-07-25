@@ -152,9 +152,20 @@ Two skills work together to surface and fix GitHub's security and quality alerts
 An unattended `pr-review-loop` stops at the first permission prompt, which defeats the point. `.claude/settings.json` in this repository allowlists the specific git and `gh` subcommands the loop needs, and denies the ones it must never reach for:
 
 - **Allowed** — `git status/diff/log/show/rev-parse/fetch/add/commit/switch/branch/stash`, the two exact push forms below, `gh pr`, `gh api`, `gh repo view`, `jq`, `date`, `sleep`, `wc`, `tr`.
-- **Denied** — `git push --force`, `git push -f`, `git push --force-with-lease`, `git reset --hard`, `git clean`, `git branch -D`, `gh api -X`, `gh api --method`, `gh pr merge`, `gh repo delete`.
+- **Denied** — `git push --force`, `git push -f`, `git reset --hard`, `git clean`, `gh api -X`, `gh api --method`, `gh pr merge`, `gh repo delete`.
 
 Subcommands are enumerated rather than blanket-allowing `Bash(git *)`. Deny rules take precedence over allow rules.
+
+### Deny blocks; absence prompts
+
+These are two different outcomes, and confusing them is how this file got its permissions wrong the first time:
+
+- A command matching a **deny** rule is **refused outright**. There is no prompt, and no way to approve it in the moment.
+- A command matching **no allow rule** — and no deny rule — **prompts**. You approve or reject it as it happens.
+
+So "make this prompt rather than run silently" is achieved by *leaving a command off the allowlist*, never by denying it. Denying a command that a hand-invoked skill legitimately needs does not add friction to that skill; it breaks it outright.
+
+That is exactly what went wrong here. `git push --force-with-lease` and `git branch -D` were originally denied on the theory that denying them would make `/rebase`, `branch-clean`, and `branch-done` prompt. It would instead have made their documented paths impossible to complete — `rebase` could not have pushed at all. Both denies were removed. The narrow allowlist already produces the intended behavior on its own: neither command matches an allow rule, so both prompt when invoked by hand and neither is reachable unattended.
 
 ### What the deny rules can and cannot do
 
@@ -165,12 +176,12 @@ Neither form can express "this flag anywhere in the command." That is what makes
 The control that actually holds is the **narrow allowlist**:
 
 - **`git push` is allowed only as `Bash(git push)` and `Bash(git push -u origin HEAD)`** — the two exact forms `commit-push` and `pr-create` issue. Both are written without a trailing wildcard, so they match those invocations and nothing longer: any other push, with a flag anywhere in it, matches no allow rule and therefore prompts. That is what genuinely keeps the unattended loop away from a force-push, and unlike the deny list it does not depend on guessing where a flag will sit.
-- **`git branch` is allowed only for reading** — `Bash(git branch)` and `Bash(git branch --show-current)`. Every delete form prompts, including `git branch -d`. A broader `Bash(git branch:*)` would have let `git branch --delete --force` through, since it does not start with the denied `git branch -D` prefix. Branch deletion happens in `branch-clean` and `branch-done`, which are invoked by hand, so a prompt there costs one keystroke and closes the hole.
+- **`git branch` is allowed only for reading** — `Bash(git branch)` and `Bash(git branch --show-current)`. Every delete form prompts, including the safe `git branch -d`. A broader `Bash(git branch:*)` would have permitted `git branch --delete --force` outright, and no deny rule could reliably have caught it: `--delete --force` is `-D` spelled long, and a prefix rule naming one spelling never sees the other. Restricting the allow side covers every spelling at once. Branch deletion happens in `branch-clean` and `branch-done`, which are invoked by hand, so a prompt there costs one keystroke.
 - **`gh api` is allowed broadly** (`Bash(gh api:*)`), because the loop calls many endpoints and the paths vary per PR. This is a real capability worth understanding: anything reachable over the GitHub REST or GraphQL API is reachable from an allowed `gh api` call. What keeps merges and deletions out of reach is that the skills never issue them, not that the permission layer forbids them.
 
 The same asymmetry cuts the other way, and it is worth knowing before "fixing" a rule that looks broken. `gh-findings` issues `gh api repos/{owner}/{repo}/code-scanning/alerts --paginate -X GET ...`, which *looks* like it should trip the `Bash(gh api -X:*)` deny. It does not: the command begins `gh api repos/...`, not `gh api -X`, so the prefix never matches. A deny rule that fails to block a dangerous flag placed late will equally fail to block a harmless one.
 
-One deny rule is deliberate rather than defensive: **`git push --force-with-lease`** is the safe form of a force-push and `rebase` uses it as its normal operation. Denying it means `/rebase` prompts once per run instead of force-pushing silently — appropriate for a hand-invoked command that rewrites published history.
+Nothing a hand-invoked skill needs is denied. `rebase` force-pushes with `--force-with-lease`, and `branch-clean` and `branch-done` force-delete with `git branch -D` after you confirm; none of the three matches an allow rule, so each prompts at the moment it runs and none can be reached by the unattended loop. That is the intended shape — a prompt for the destructive step of a command you invoked deliberately, and no path to it otherwise.
 
 ## Adding a skill
 

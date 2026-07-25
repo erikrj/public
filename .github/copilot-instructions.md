@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.07.25.0936
+  version: 2026.07.25.1407
 ---
 
 # Copilot Instructions
@@ -85,7 +85,6 @@ The same applies to any `--jq` filter whose result is a scalar summary (`length`
 **GEN-008** — A `deny` rule in `.claude/settings.json` must not be relied on to block a command that can express the same operation with its flags in a different position. Permission rules match the command string from the left: a rule written without a wildcard (`Bash(git push)`) matches that command **exactly**, and a rule ending in `:*` or `*` (`Bash(gh api -X:*)`) matches commands that **begin** with that prefix. Neither form can express "this flag anywhere in the command", so `Bash(gh api -X:*)` does not block `gh api repos/o/r/pulls/1/merge -X PUT`, and `Bash(git push --force:*)` does not block `git push origin HEAD --force`.
 
 Where a capability must actually be withheld, narrow the **allow** list to the exact invocations that are needed rather than denying the ways around it — an unmatched command prompts, which is the safe default. Deny rules remain useful as a guard against the common literal form, but documentation must not describe them as a boundary. When a broad allow rule is genuinely required (e.g. `Bash(gh api:*)`, whose paths vary per call), say plainly what it permits and what actually constrains it.
-
 ### Skill Description Accuracy
 
 **GEN-009** — When a `SKILL.md` body changes what the skill does, its frontmatter `description` must be updated in the same change to match. The description is the only text shown in the command list and in the model's skill listing, so a stale one causes the skill to be invoked for the wrong task or skipped for the right one — a failure that never surfaces when reading the skill itself, only when something else picks it.
@@ -102,6 +101,23 @@ Check the two directions separately, because they fail differently:
 - An entry in `allowed-tools` that **no snippet uses** grants the skill more than it needs and should be removed.
 
 When a change adds a command to a snippet, verify it appears in `allowed-tools`, in `settings.json` if the skill runs unattended, and in any documentation that enumerates the allowed commands.
+
+### Deny Versus Prompt
+
+**GEN-011** — Do not deny a command in order to make it prompt. A `deny` rule **refuses** a command outright, with no opportunity to approve it; a command matching **no allow rule** is what produces a prompt. The two are frequently confused because both stop an unattended run, but they differ exactly where it matters: a denied command can never proceed, so denying one that a hand-invoked skill legitimately needs does not add a confirmation step to that skill — it breaks the skill.
+
+Before adding a `deny` entry, check whether any documented workflow in the repository issues that command. If one does, the correct action is to leave it off the `allow` list and add no deny rule at all:
+
+```jsonc
+// wrong — /rebase can no longer push, and no prompt is offered
+"deny": ["Bash(git push --force-with-lease:*)"]
+
+// right — not allowlisted, so it prompts when invoked by hand
+// and stays unreachable in unattended runs
+"allow": ["Bash(git push)", "Bash(git push -u origin HEAD)"]
+```
+
+Reserve `deny` for commands no workflow in the repository should ever run. Flag any documentation that describes a deny rule as causing a prompt.
 
 ---
 
