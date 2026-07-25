@@ -50,7 +50,7 @@ This is the compounding part of the workflow — each PR that finds something ge
 | **Settled** | No actionable findings, or everything resolved with no code changed. Nothing new for a reviewer to look at. |
 | **Churn** | A comment already rejected in an earlier round was raised again on the same path. Two rejections of the same point means the disagreement is real and belongs to you. |
 | **Escalation** | A finding needs your decision. The round finishes everything else first. |
-| **Round cap** | `pr-review-loop <max-rounds>` rounds completed (default 20). |
+| **Round cap** | `pr-review-loop <rounds>` rounds completed (default 20). |
 | **Hard error** | Review request failed, poll timed out, or the push was rejected as non-fast-forward (run `rebase`). |
 
 The loop never force-pushes and never marks the PR ready for review — that stays yours.
@@ -69,7 +69,7 @@ These skills operate on the PR for your **current branch**. They are split by re
 | Skill | What it does | Touches code? | Touches GitHub? |
 |---------|--------------|:-------------:|:---------------:|
 | `pr-open` | Takes the working tree to an open draft PR in one step: fresh `{user}/{name}` branch off updated `origin/main`, commit, push, create. Composes `branch-clean` + `commit` + `pr-create`. Stops if the branch already has an open PR. | Stages + commits | Pushes + opens draft PR |
-| `pr-review-loop [max-rounds]` | Drives the full review cycle unattended until the PR settles. Composes `pr-comments-fix` + `commit-push` + `pr-comments-resolve` per round. Requires a clean working tree. | Yes (commits) | Requests reviews, pushes, replies, resolves |
+| `pr-review-loop [rounds]` | Drives the full review cycle unattended until the PR settles. Composes `pr-comments-fix` + `commit-push` + `pr-comments-resolve` per round. Requires a clean working tree. | Yes (commits) | Requests reviews, pushes, replies, resolves |
 | `pr-comments` | Lists every comment on the PR (review summaries, inline diff comments, conversation comments) with full details and resolution status. Read-only. | No | Reads only |
 | `pr-comments-fix` | Triages every comment into `fix` / `reject` / `escalate`, edits the working tree for the fixes, and records verdicts and reasons to `.git/pr-triage-{number}.json`. Does not commit, push, reply, or resolve. | Yes (working tree) | Reads only |
 | `pr-comments-resolve` | Closes out threads: fixed ones are verified as **committed** then replied to and resolved; rejected ones are replied to with the reason and resolved. Escalated ones are replied to and left open. Never edits code. | No | Reads + writes |

@@ -3,16 +3,16 @@ name: pr-review-loop
 description: Drive the full Copilot review cycle unattended — request review, fix real findings, reject false positives, push, resolve threads, repeat until settled
 allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Bash(date:*), Bash(sleep:*), Bash(wc:*), Bash(tr:*), Read, Edit, Write, Grep, Glob
 disable-model-invocation: true
-arguments: [max-rounds]
+arguments: [rounds]
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-review-loop
-  version: 2026.07.25.0936
+  version: 2026.07.25.0946
 ---
 
 Run the entire PR review cycle for the **current branch** without a human in the loop: request a Copilot review, wait for it, fix what is real, reject what is not, commit and push, reply on and resolve every thread, then go around again. Stop when the PR has settled, and hand back a report the author can audit in one pass.
 
-`$max-rounds` caps the number of review rounds (default **20**). The cap exists to bound cost and to stop arguments with a reviewer that will not be satisfied — hitting it is a reportable outcome, not a failure to retry harder. In practice the loop settles well before the cap; churn and escalation are the conditions that normally end it.
+`$rounds` caps the number of review rounds (default **20**). The cap exists to bound cost and to stop arguments with a reviewer that will not be satisfied — hitting it is a reportable outcome, not a failure to retry harder. In practice the loop settles well before the cap; churn and escalation are the conditions that normally end it.
 
 This skill composes the existing single-step skills rather than reimplementing them. Read each referenced `SKILL.md` and follow its steps as written; if one contradicts this file, the referenced skill wins for its own step.
 
@@ -108,7 +108,7 @@ Stop the loop and report when any of these holds:
 - **Settled** — the round produced no actionable findings, or every finding was resolved and **no code changed** (step 6 was skipped). With nothing new to review, another round would only re-run the same reviewer against the same diff.
 - **Churn** — a comment already rejected in an earlier round has been raised again on the same path with substantially the same content. `pr-comments-fix` flags this from the triage record. Two rejections of the same point means the disagreement is real and belongs to the author, not to another round.
 - **Escalation** — a finding was classified `escalate`. Finish the current round (fix, push, resolve everything else), then stop. An escalation is by definition a decision the loop cannot make.
-- **Round cap** — `$max-rounds` rounds have completed (default 20).
+- **Round cap** — `$rounds` rounds have completed (default 20).
 - **Hard error** — the review request failed, the poll timed out, or the push was rejected.
 
 Never resolve a thread just to satisfy a stop condition, and never mark the PR ready for review — the PR stays a draft for the author to review and promote.
