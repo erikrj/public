@@ -2,35 +2,87 @@
 
 This directory holds repository-scoped agent skills. Each skill lives in `<skillname>/SKILL.md`; the directory name is the skill name.
 
-## PR comment workflow
+## The development workflow
 
-Three skills work together to handle pull-request review comments on the PR for your **current branch**. They are deliberately split by responsibility so each step is safe to run on its own and easy to review.
+The skills are designed around one end-to-end loop: make a change, ship it to a PR, let the agent work the review to completion, then review the finished result once. The two commands that matter are `pr-open` and `pr-review-loop` — the rest are the single-purpose skills those two compose, kept available so any step can be run by hand.
+
+```text
+1. ask Claude to make changes
+2. pr-open           # fresh branch off main + commit + push + draft PR
+3. pr-review-loop    # request review → fix / reject → push → resolve → repeat
+4. review the result, mark ready, merge
+5. branch-done       # switch back to main, pull, drop the branch
+```
+
+Step 3 is the part that used to require you. `pr-review-loop` drives the whole review cycle unattended: it requests a Copilot review, waits for it, decides what is real, fixes it, pushes, replies on every thread, resolves them, and goes around again until the PR settles.
+
+### How the loop decides what to fix
+
+Every comment gets exactly one verdict. The question is always *"is there a real defect or a real rule violation here?"* — never *"did the reviewer cite a rule code?"*. Reviewers legitimately find bugs and security problems that no rule in `.github/copilot-instructions.md` covers, and those are fixed on their own merit.
+
+| Verdict | When | What happens |
+|---------|------|--------------|
+| `fix` | A genuine defect (bug, security issue, bad logic, unhandled edge case, resource leak, test that does not test what it claims) **or** a genuine violation of a rule in `copilot-instructions.md` / `CLAUDE.md` | Code is edited, committed, pushed. The thread gets a reply citing the fixing commit, then is resolved. |
+| `reject` | The comment does not identify a real problem: factually wrong about the code, already handled elsewhere, subjective style not tied to a rule, contradicts a deliberate design, or asks for out-of-scope work | No code change. The thread gets a reply stating why, then is resolved. |
+| `escalate` | Genuinely needs a decision only you can make (a product trade-off, a business rule the agent cannot verify, a change with wide blast radius) | Left open, replied to, and surfaced in the report. Ends the loop. |
+
+Verdicts and reasons are written to `.git/pr-triage-{number}.json` — inside `.git/` so it is never staged by `commit` and needs no `.gitignore` entry. The record persists across rounds, which is what makes churn detectable.
+
+**Rejection is the mechanism that lets the loop terminate.** Before it existed, a false positive could not be fixed (it was wrong) and could not be resolved (nothing was fixed), so it survived every round forever and the cycle could only be ended by a human resolving threads in the GitHub UI.
+
+### How the loop stops
+
+| Condition | Meaning |
+|-----------|---------|
+| **Settled** | No actionable findings, or everything resolved with no code changed. Nothing new for a reviewer to look at. |
+| **Churn** | A comment already rejected in an earlier round was raised again on the same path. Two rejections of the same point means the disagreement is real and belongs to you. |
+| **Escalation** | A finding needs your decision. The round finishes everything else first. |
+| **Round cap** | `pr-review-loop <max-rounds>` rounds completed (default 5). |
+| **Hard error** | Review request failed, poll timed out, or the push was rejected as non-fast-forward (run `rebase`). |
+
+The loop never force-pushes and never marks the PR ready for review — that stays yours.
+
+### What to read when it finishes
+
+The run report ends with two consolidated lists, and they are the point of reviewing at all:
+
+- **Rejected without a code change** — every place the agent overrode a reviewer on your behalf, with the reason posted to GitHub. Read this first.
+- **Needs your decision** — escalations and churn.
+
+## PR review workflow
+
+These skills operate on the PR for your **current branch**. They are split by responsibility so each step is safe to run alone; `pr-review-loop` is the composition of the middle three.
 
 | Skill | What it does | Touches code? | Touches GitHub? |
 |---------|--------------|:-------------:|:---------------:|
+| `pr-open` | Takes the working tree to an open draft PR in one step: fresh `{user}/{name}` branch off updated `origin/main`, commit, push, create. Composes `branch-clean` + `commit` + `pr-create`. Stops if the branch already has an open PR. | Stages + commits | Pushes + opens draft PR |
+| `pr-review-loop [max-rounds]` | Drives the full review cycle unattended until the PR settles. Composes `pr-comments-fix` + `commit-push` + `pr-comments-resolve` per round. Requires a clean working tree. | Yes (commits) | Requests reviews, pushes, replies, resolves |
 | `pr-comments` | Lists every comment on the PR (review summaries, inline diff comments, conversation comments) with full details and resolution status. Read-only. | No | Reads only |
-| `pr-comments-fix` | Fetches the comments and edits the working tree to resolve them. Does not commit, push, reply, or resolve threads. | Yes (working tree) | Reads only |
-| `pr-comments-resolve` | Verifies each requested change is present **and committed**, then replies on the thread and marks it resolved on GitHub. Never edits code. | No | Reads + writes |
+| `pr-comments-fix` | Triages every comment into `fix` / `reject` / `escalate`, edits the working tree for the fixes, and records verdicts and reasons to `.git/pr-triage-{n}.json`. Does not commit, push, reply, or resolve. | Yes (working tree) | Reads only |
+| `pr-comments-resolve` | Closes out threads: fixed ones are verified as **committed** then replied to and resolved; rejected ones are replied to with the reason and resolved. Escalated ones are replied to and left open. Never edits code. | No | Reads + writes |
 
-All three resolve the PR from the current branch and pull comments from the four places GitHub stores them (review summaries, inline diff comments, issue/conversation comments, and GraphQL review-thread state).
+All of them resolve the PR from the current branch and pull comments from the four places GitHub stores them (review summaries, inline diff comments, issue/conversation comments, and GraphQL review-thread state).
 
-### Typical flow
+### Running the steps by hand
+
+The loop is the fast path, not the only path. To stay in the loop yourself:
 
 ```text
-1. pr-comments           # review what reviewers asked for
-2. pr-comments-fix       # let the agent make the code changes
-3. (review the diff yourself, then commit + push)
-4. pr-comments-resolve   # reply on each thread and mark it resolved
+1. pr-comments           # see what reviewers asked for
+2. pr-comments-fix       # triage + make the code changes
+3. (review the diff yourself, then commit-push)
+4. pr-comments-resolve   # reply on each thread and resolve
 ```
 
-Step 3 is intentionally manual: `pr-comments-fix` stops at the working tree so you can inspect and commit the changes yourself. `pr-comments-resolve` will **not** resolve a thread whose fix is uncommitted — it reports it as "left open — uncommitted" so nothing gets marked done before it's actually on the branch.
+`pr-comments-fix` stops at the working tree so you can inspect before committing. `pr-comments-resolve` will **not** resolve a thread whose fix is uncommitted — it reports it as "left open — uncommitted" so nothing is marked done before it is actually on the branch.
 
 ### Notes
 
-- **Current-branch scoped.** Each command operates on the PR for the branch you have checked out. If there is no PR for the branch, the command reports that and stops.
-- **Respects repo rules.** The fix and resolve steps honor the conventions in `CLAUDE.md` and `.github/copilot-instructions.md` (rule codes, formatting, validation library, etc.) when deciding what a comment asks for and how to address it.
+- **Current-branch scoped.** Each skill operates on the PR for the branch you have checked out. If there is no PR for the branch, it reports that and stops.
+- **Respects repo rules.** Triage honors the conventions in `CLAUDE.md` and `.github/copilot-instructions.md` — but a rule code is supporting evidence for a finding, not the bar for one.
 - **Skips noise.** Informational comments (e.g. PR overview summaries) and already-resolved threads are skipped automatically.
-- **Requires the GitHub CLI.** All three rely on an authenticated [`gh`](https://cli.github.com/) and use `gh api` / `gh api graphql` under the hood.
+- **Copilot naming.** Three different names are in play and are not interchangeable: `@copilot` is the value `gh pr edit --add-reviewer` takes, `Copilot` is the login the requested reviewer appears under, and `copilot-pull-request-reviewer[bot]` is the author of the submitted review.
+- **Requires the GitHub CLI.** All rely on an authenticated [`gh`](https://cli.github.com/) and use `gh api` / `gh api graphql` under the hood.
 
 ## Security & quality findings workflow
 
@@ -52,7 +104,8 @@ Two skills work together to surface and fix GitHub's security and quality alerts
 ```text
 1. gh-findings                           # see every open alert, each with a gh-fix line
 2. gh-fix <alert-url>                    # fix one finding on its own branch + PR (repeat per finding)
-3. review/merge the PR — alerts close once merged (or after rotation)
+3. pr-review-loop                        # work the review on that PR to completion
+4. review/merge the PR — alerts close once merged (or after rotation)
 ```
 
 ### Notes
@@ -76,17 +129,39 @@ Two skills work together to surface and fix GitHub's security and quality alerts
 | `skills-update` | Refreshes every installed skill (and all its related files) **and** other tracked distributed files (e.g. `.github/copilot-instructions.md`) from the `metadata.source` GitHub URL declared in each file — a `/tree/` URL for a skill directory or a `/blob/` URL for a single file — overwriting local copies with the authoritative source. Reports updated/unchanged/stale per item; does not commit or push. | Writes skill + tracked files | Reads only |
 | `transcribe <file>` | Transcribes an audio/video file by running the `tools/transcribe` CLI (AWS Transcribe), writing the transcript next to the input. Prompts for the AWS profile when one is not provided/set, and checks it is authenticated before running. | Writes transcript files | Reads + writes AWS (S3 + Transcribe) |
 
+## Permissions
+
+An unattended `pr-review-loop` stops at the first permission prompt, which defeats the point. `.claude/settings.json` in this repository allowlists the specific git and `gh` subcommands the loop needs, and denies the ones it must never reach for:
+
+- **Allowed** — `git status/diff/log/show/rev-parse/fetch/add/commit/push/switch/branch/stash`, `gh pr`, `gh api`, `gh repo view`, `jq`, `date`, `sleep`.
+- **Denied** — `git push --force`, `git push -f`, `git reset --hard`, `git clean`, `git branch -D`, `gh pr merge`, `gh repo delete`.
+
+Subcommands are enumerated rather than blanket-allowing `Bash(git *)` so the allowlist cannot widen into a force-push or a hard reset. Deny rules take precedence over allow rules.
+
 ## Adding a skill
 
-Create a new `<name>/SKILL.md` file in this directory with YAML frontmatter:
+Create a new `<name>/SKILL.md` file in this directory. The frontmatter must include a `metadata` block declaring `owner`, `source`, and `version` (**GEN-006**):
 
 ```markdown
 ---
+name: my-skill
 description: One-line summary shown in the command list
 allowed-tools: Bash(gh:*), Read, Edit
+metadata:
+  owner: Erik Jensen (@erikrj)
+  source: https://github.com/erikrj/public/tree/main/.claude/skills/my-skill
+  version: 2026.07.24.2236
 ---
 
 Instructions for Claude, written as a prompt...
 ```
 
-The `description` summarizes the skill, and `allowed-tools` restricts which tools the skill may use.
+- `description` — summarizes the skill for the command list.
+- `allowed-tools` — restricts which tools the skill may use.
+- `metadata.source` — the authoritative GitHub URL the skill is published and re-synced from. Downstream repositories pull from it via `skills-update`; per **GEN-005**, a downstream copy is never edited in place. This repository *is* the source for these skills, so editing them here is the correct way to change them.
+- `metadata.version` — a `YYYY.MM.DD.HHMM` stamp, bumped on every change.
+
+Two optional fields worth knowing:
+
+- `disable-model-invocation: true` — hides the skill from Claude's own skill list so it only runs when you type `/name`. Used for skills that push, open PRs, or otherwise act on the remote: `commit-push`, `codereview`, `pr-open`, `pr-review-loop`.
+- `arguments: [name]` — declares positional arguments, referenced in the body as `$name`.

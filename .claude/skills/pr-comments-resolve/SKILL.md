@@ -5,10 +5,12 @@ allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Read, Grep, Glob
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-comments-resolve
-  version: 2026.07.15.1923
+  version: 2026.07.24.2236
 ---
 
-Fetch every comment on the GitHub pull request associated with the **current branch**, verify each requested change has actually been made **and committed**, then reply on the thread and mark it resolved on GitHub. This skill does **not** edit code — if a comment is not yet fixed, it is left open. Run `pr-comments-fix` first to make the changes.
+Close out every open thread on the GitHub pull request associated with the **current branch**. A thread is closed one of two ways: the change it asked for was made and committed, or it was rejected with a stated reason. Both get a reply and are marked resolved. Only threads that are genuinely unresolvable — the fix is uncommitted, or the point needs the author's decision — are left open.
+
+This skill does **not** edit code. Run `pr-comments-fix` first to make the changes and record the triage verdicts.
 
 ## Steps
 
@@ -35,12 +37,15 @@ Fetch every comment on the GitHub pull request associated with the **current bra
    gh api repos/{owner}/{repo}/issues/{number}/comments --paginate
    ```
 
-3. Build the actionable list of **unresolved** inline threads. For each, capture the **path**, **line**, the originating comment's **databaseId**, and the request (verbatim body).
+3. Load the triage record written by `pr-comments-fix` at `.git/pr-triage-{number}.json`, keyed by `commentId`. It carries the **verdict** (`fix` / `reject` / `escalate`) and the **reason** for each comment. If the file is missing (this skill was run standalone), triage the threads yourself using the verdict definitions in the `pr-comments-fix` skill — the classification rules live there and must not be duplicated or weakened here.
+
+4. Build the actionable list of **unresolved** inline threads. For each, capture the **path**, **line**, the thread's node **id**, the originating comment's **databaseId**, and the request (verbatim body).
    - Skip threads already marked **resolved**.
    - Skip purely informational comments that request no change (e.g. PR overview summaries).
-   - Honor the repository review rules in `.github/copilot-instructions.md` when judging what a comment is actually asking for.
 
-4. Verify each thread before touching it. A thread may only be resolved when the requested change is **present in a commit on the current branch**, not merely in the working tree:
+5. Determine each thread's outcome. Never resolve a thread on the strength of a working-tree edit — the change must be **present in a commit on the current branch**.
+
+   For **fix** verdicts, verify before touching the thread:
    - Read the referenced file and surrounding context to confirm the change the comment asked for is in fact present.
    - Confirm it is committed, not a pending edit:
      ```sh
@@ -48,29 +53,42 @@ Fetch every comment on the GitHub pull request associated with the **current bra
      git log --oneline -5 -- {path}         # the fixing commit should be here
      git log -p -1 -- {path}                # inspect the change if needed
      ```
-   - Classify each thread as:
-     - **fixed-and-committed** — the change is present and committed → proceed to reply + resolve.
-     - **fixed-but-uncommitted** — the change is in the working tree only → do **not** resolve; report that it must be committed first.
-     - **not-fixed** — the requested change is absent → do **not** resolve; report it as still open.
 
-5. For each **fixed-and-committed** thread, reply on the thread, then resolve it:
-   - Post a brief reply that states what was done and cites the commit that addressed it:
-     ```sh
-     git log -1 --format=%h -- {path}       # short sha that fixed it
-     gh api repos/{owner}/{repo}/pulls/{number}/comments/{databaseId}/replies \
-       -f body="Fixed in {sha} — {one-line summary of the change}."
-     ```
-   - Mark the thread resolved using its node `id`:
-     ```sh
-     gh api graphql -f query='
-       mutation($id:ID!){ resolveReviewThread(input:{threadId:$id}){ thread{ isResolved } } }
-     ' -F id={threadId}
-     ```
-   - Keep replies short and factual. Do not resolve a thread whose reply failed to post.
+   Classify each thread as:
+   - **fixed-and-committed** — the change is present and committed → reply + resolve.
+   - **rejected** — the triage verdict is `reject` → reply with the reason + resolve.
+   - **fixed-but-uncommitted** — the change is in the working tree only → do **not** resolve; report that it must be committed first.
+   - **not-fixed** — verdict was `fix` but the change is absent → do **not** resolve; report it as still open.
+   - **escalated** — the triage verdict is `escalate` → do **not** resolve. Reply on the thread noting it needs the author's decision, and surface it in the report.
 
-6. Report the results. List each thread with:
+6. Reply and resolve.
+
+   For **fixed-and-committed** threads, cite the commit that addressed it:
+   ```sh
+   git log -1 --format=%h -- {path}       # short sha that fixed it
+   gh api repos/{owner}/{repo}/pulls/{number}/comments/{databaseId}/replies \
+     -f body="Fixed in {sha} — {one-line summary of the change}."
+   ```
+
+   For **rejected** threads, post the recorded reason. The reply must say what was checked and why the comment does not apply, so a human reading the PR later can audit the decision without re-deriving it:
+   ```sh
+   gh api repos/{owner}/{repo}/pulls/{number}/comments/{databaseId}/replies \
+     -f body="Not applying — {reason}."
+   ```
+   Write the reason plainly and without hedging or apology. Do not claim a rule or a check that does not exist, and do not dress a judgment call up as a fact: if the call is a design preference, say so.
+
+   Then mark the thread resolved using its node `id` (both cases):
+   ```sh
+   gh api graphql -f query='
+     mutation($id:ID!){ resolveReviewThread(input:{threadId:$id}){ thread{ isResolved } } }
+   ' -F id={threadId}
+   ```
+
+   Keep replies short and factual. Do not resolve a thread whose reply failed to post.
+
+7. Report the results. List each thread with:
    - the **file path** and **line**
    - the comment **body** (brief)
-   - the outcome: **replied + resolved** (with the cited sha), **left open — uncommitted** , or **left open — not fixed**
+   - the outcome: **fixed + resolved** (with the cited sha), **rejected + resolved** (with the reason), **left open — uncommitted**, **left open — not fixed**, or **left open — needs your decision**
 
-   End with a short summary: how many threads were resolved, how many left open and why. If any threads were left open because the fix is uncommitted, remind the user to commit and re-run.
+   End with a short summary: how many threads were resolved as fixed, how many resolved as rejected, and how many left open and why. Because rejected threads are closed without a code change, always list them together at the end under a clear heading — they are the part of this run most worth the author's eyes.
