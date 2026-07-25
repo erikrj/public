@@ -5,7 +5,7 @@ allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Read, Grep, Glob
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-comments-resolve
-  version: 2026.07.25.0929
+  version: 2026.07.25.1426
 ---
 
 Close out every open **inline review thread** on the GitHub pull request associated with the **current branch**. A thread is closed one of two ways: the change it asked for was made and committed, or it was rejected with a stated reason. Both get a reply and are marked resolved. Only threads that are genuinely unresolvable — the fix is uncommitted, or the point needs the author's decision — are left open.
@@ -25,15 +25,17 @@ This skill does **not** edit code. Run `pr-comments-fix` first to make the chang
 
 2. Fetch the inline review threads with their resolution state, node id (needed to resolve), and the first comment's database id (needed to reply):
    ```sh
-   gh api graphql -f query='
-     query($owner:String!,$repo:String!,$number:Int!){
+   gh api graphql --paginate -f query='
+     query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){
        repository(owner:$owner,name:$repo){
          pullRequest(number:$number){
-           reviewThreads(first:100){
+           reviewThreads(first:100, after:$endCursor){
+             pageInfo{ hasNextPage endCursor }
              nodes{ id isResolved isOutdated path line
                comments(first:50){ nodes{ databaseId author{login} body createdAt } } } } } } }
    ' -F owner={owner} -F repo={repo} -F number={number}
    ```
+   The query paginates deliberately. A bare `reviewThreads(first:100)` truncates past 100 threads, and this skill is the one that closes threads out — truncation would leave threads untouched while the run reports completion. `--paginate` emits one JSON document per page, so collect nodes across pages (`jq -s '[.[].data.repository.pullRequest.reviewThreads.nodes[]]'`) before working with them.
    Also fetch the two comment types that have **no resolve state** — review summary bodies and issue / conversation comments:
    ```sh
    gh api repos/{owner}/{repo}/pulls/{number}/reviews --paginate

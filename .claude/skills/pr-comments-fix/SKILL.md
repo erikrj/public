@@ -5,7 +5,7 @@ allowed-tools: Bash(gh:*), Bash(jq:*), Read, Edit, Write, Grep, Glob
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-comments-fix
-  version: 2026.07.25.0929
+  version: 2026.07.25.1426
 ---
 
 Fetch every comment on the GitHub pull request associated with the **current branch**, decide which ones identify a real problem, and fix those. Comments that do not identify a real problem are recorded as rejected with a reason, so `pr-comments-resolve` can close them out on GitHub — a review cycle only terminates if wrong comments have a path to closed.
@@ -37,15 +37,17 @@ This skill only edits code in the working tree — it does **not** commit, push,
      ```
    - **Review-thread resolution state** (whether an inline thread is resolved/outdated), via GraphQL:
      ```sh
-     gh api graphql -f query='
-       query($owner:String!,$repo:String!,$number:Int!){
+     gh api graphql --paginate -f query='
+       query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){
          repository(owner:$owner,name:$repo){
            pullRequest(number:$number){
-             reviewThreads(first:100){
+             reviewThreads(first:100, after:$endCursor){
+               pageInfo{ hasNextPage endCursor }
                nodes{ isResolved isOutdated path
                  comments(first:1){ nodes{ databaseId author{login} } } } } } } }
      ' -F owner={owner} -F repo={repo} -F number={number}
      ```
+     Paginate rather than using a bare `first:100`, which truncates past 100 threads and would drop findings from triage entirely. `--paginate` emits one JSON document per page, so collect nodes across pages before using them.
 
 3. Build the actionable list. For each comment, capture the **author**, **file path** and **line** (for inline comments), the **body** (verbatim), the thread's **root comment databaseId**, and the thread's **resolved / outdated** status.
 

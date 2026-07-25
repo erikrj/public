@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.07.25.1416
+  version: 2026.07.25.1426
 ---
 
 # Copilot Instructions
@@ -120,6 +120,25 @@ Before adding a `deny` entry, check whether any documented workflow in the repos
 ```
 
 Reserve `deny` for commands no workflow in the repository should ever run. Flag any documentation that describes a deny rule as causing a prompt.
+
+### Paginated GraphQL Connections
+
+**GEN-012** — A GraphQL connection fetched with a bare `first: N` must not be treated as complete. GitHub returns at most `N` items and reports the rest only through `pageInfo`, so a query like `reviewThreads(first: 100)` silently truncates on the 101st item. The resulting bug is always a **false negative** — items that exist are reported as absent — which is the failure mode least likely to be noticed, because the output looks like a clean empty result rather than an error.
+
+Declare a cursor variable and return `pageInfo` so `gh api graphql --paginate` can walk every page:
+
+```graphql
+# wrong — truncates at 100, silently
+reviewThreads(first: 100) { nodes { id isResolved } }
+
+# right — --paginate follows the cursor to the end
+reviewThreads(first: 100, after: $endCursor) {
+  pageInfo { hasNextPage endCursor }
+  nodes { id isResolved }
+}
+```
+
+The query must also declare `$endCursor: String` in its variable list. Note that `--paginate` emits **one JSON document per page**, so collect nodes across pages (`jq -s '[.[].data…nodes[]]'`) before counting or filtering — the same aggregation trap as **GEN-007**. Apply this wherever a truncated result would be read as authoritative: counts, completeness checks, and any audit that reports "nothing found".
 
 ---
 

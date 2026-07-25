@@ -28,13 +28,20 @@ This skill composes the existing single-step skills rather than reimplementing t
 
 3. If the tree is clean **and** the branch has no commits ahead of `origin/main`, stop — there is nothing to open a PR for.
 
-4. **Branch phase.** The goal is that the work sits on a feature branch based on an up-to-date `origin/main`. Check whether that is already true before doing anything:
+4. **Branch phase.** The goal is that the work sits on a feature branch based on an up-to-date `origin/main`. Check whether that is already true before doing anything, with a test that answers the question rather than printing values for you to eyeball:
    ```sh
    git fetch origin main
-   git rev-parse HEAD origin/main          # equal?
-   git rev-parse --abbrev-ref HEAD         # not main?
+   branch=$(git rev-parse --abbrev-ref HEAD)
+   ahead=$(git rev-list --count origin/main..HEAD)
+   if [ "$branch" != "main" ] && [ "$ahead" -eq 0 ]; then
+     echo "branch phase already satisfied"
+   else
+     echo "branch phase needed (branch=$branch ahead=$ahead)"
+   fi
    ```
-   If the current branch is **not** `main` and its `HEAD` already equals `origin/main` (no commits ahead), the branch phase is satisfied — skip it and say so in the report. This is the common case when `branch-clean` was just run by hand. Re-cutting would stash, derive the same name, and pop again for no gain, with a needless conflict risk.
+   Both conditions must hold: the current branch is **not** `main`, and it has **no commits ahead** of `origin/main`. When they do, the branch phase is satisfied — skip it and say so in the report. This is the common case when `branch-clean` was just run by hand; re-cutting would stash, derive the same name, and pop again for no gain, with a needless conflict risk.
+
+   `git rev-list --count origin/main..HEAD` is the check to use rather than comparing two `rev-parse` outputs by eye. It states the actual condition — commits ahead — and returns a number a script can branch on.
 
    Otherwise follow `.claude/skills/branch-clean/SKILL.md` to move the work onto a fresh branch off the updated `origin/main`. That covers both starting from `main` and re-cutting a stale feature branch, and it is what keeps the PR's diff clean against current `main`.
 

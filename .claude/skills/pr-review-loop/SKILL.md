@@ -7,7 +7,7 @@ arguments: [rounds]
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-review-loop
-  version: 2026.07.25.1416
+  version: 2026.07.25.1426
 ---
 
 Run the entire PR review cycle for the **current branch** without a human in the loop: request a Copilot review, wait for it, fix what is real, reject what is not, commit and push, reply on and resolve every thread, then go around again. Stop when the PR has settled, and hand back a report the author can audit in one pass.
@@ -35,17 +35,22 @@ This skill composes the existing single-step skills rather than reimplementing t
 
 Repeat until a stop condition below is met. Announce the round number before each round so the run is followable in the transcript.
 
-1. **Check for work already waiting.** Fetch the unresolved review threads:
+1. **Check for work already waiting.** Fetch the review threads. This is the canonical thread query used throughout this skill — **it must paginate**:
    ```sh
-   gh api graphql -f query='
-     query($owner:String!,$repo:String!,$number:Int!){
+   gh api graphql --paginate -f query='
+     query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){
        repository(owner:$owner,name:$repo){
          pullRequest(number:$number){
-           reviewThreads(first:100){
+           reviewThreads(first:100, after:$endCursor){
+             pageInfo{ hasNextPage endCursor }
              nodes{ id isResolved isOutdated path line
                comments(first:50){ nodes{ databaseId author{login} body createdAt } } } } } } }
    ' -F owner={owner} -F repo={repo} -F number={number}
    ```
+   A bare `reviewThreads(first:100)` **silently truncates** on a PR with more than 100 inline threads, and every failure that causes is a false negative: the loop misses unresolved threads, requests a review that was not needed, and can declare itself settled while comments are still open. Declaring `$endCursor` and returning `pageInfo{ hasNextPage endCursor }` lets `--paginate` walk every page on its own.
+
+   Because `--paginate` emits **one JSON document per page**, collect the nodes across pages before counting — `jq -s '[.[].data.repository.pullRequest.reviewThreads.nodes[]]'` — for the same reason a per-page `length` is wrong in step 3 (**GEN-007**).
+
    If there are already unresolved, actionable threads, skip to step 4 — there is no point asking for another review when the last one has not been answered. Otherwise continue to step 2.
 
 2. **Request a review.** Capture the cutoff timestamp *first*, so a review that lands mid-request is not missed:
@@ -121,21 +126,24 @@ Never resolve a thread just to satisfy a stop condition, and never mark the PR r
 Whatever the stop condition, **re-query GitHub for what is still open before writing the report.** Do this against the API, not against the loop's own bookkeeping — the point of the audit is to catch the cases where the two disagree. A `resolveReviewThread` call that silently failed, a thread that appeared after the last fetch, a reply that posted while the resolve did not: all of these leave the loop believing it finished while the author still sees open comments.
 
 ```sh
-# every unresolved inline review thread
-gh api graphql -f query='
-  query($owner:String!,$repo:String!,$number:Int!){
+# every unresolved inline review thread — the paginated query from step 1
+gh api graphql --paginate -f query='
+  query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){
     repository(owner:$owner,name:$repo){
       pullRequest(number:$number){
-        reviewThreads(first:100){
+        reviewThreads(first:100, after:$endCursor){
+          pageInfo{ hasNextPage endCursor }
           nodes{ id isResolved isOutdated path line
             comments(first:50){ nodes{ databaseId author{login} body createdAt } } } } } } }
 ' -F owner={owner} -F repo={repo} -F number={number} \
-  --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved|not)'
+  | jq -s '[.[].data.repository.pullRequest.reviewThreads.nodes[]] | map(select(.isResolved|not))'
 
 # review summary bodies and conversation comments — these have no resolve state
 gh api repos/{owner}/{repo}/pulls/{number}/reviews --paginate
 gh api repos/{owner}/{repo}/issues/{number}/comments --paginate
 ```
+
+The audit **must** use the paginated form. An audit that truncates reports "no open comments" while comments are open — the precise failure it exists to catch, delivered with false confidence.
 
 If nothing is unresolved, say so explicitly and give the number of threads checked. "No open comments" is only worth reading when it is clear what was counted.
 
