@@ -7,7 +7,7 @@ arguments: [max-rounds]
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-review-loop
-  version: 2026.07.24.2236
+  version: 2026.07.25.0904
 ---
 
 Run the entire PR review cycle for the **current branch** without a human in the loop: request a Copilot review, wait for it, fix what is real, reject what is not, commit and push, reply on and resolve every thread, then go around again. Stop when the PR has settled, and hand back a report the author can audit in one pass.
@@ -64,13 +64,16 @@ Repeat until a stop condition below is met. Announce the round number before eac
    deadline=$(( $(date +%s) + 900 ))
    while [ "$(date +%s)" -lt "$deadline" ]; do
      n=$(SINCE="$since" gh api repos/{owner}/{repo}/pulls/{number}/reviews --paginate \
-       --jq '[.[] | select(.user.login=="copilot-pull-request-reviewer[bot]"
-                           and .submitted_at > env.SINCE)] | length')
+       --jq '.[] | select(.user.login=="copilot-pull-request-reviewer[bot]"
+                          and .submitted_at > env.SINCE) | .submitted_at' | wc -l | tr -d ' ')
      if [ "$n" -gt 0 ]; then echo "review landed"; break; fi
      sleep 15
    done
    ```
-   The timestamp comparison happens **inside jq**, which compares ISO-8601 strings correctly and hands back a count for a portable numeric test. Do not rewrite this as a shell string comparison — `[ "$a" ">" "$b" ]` is a syntax error in zsh, and the loop would spin until it timed out on every round.
+   Two things in that snippet are deliberate and must not be "simplified":
+
+   - **The timestamp comparison happens inside jq**, which compares ISO-8601 strings correctly. Do not rewrite it as a shell string comparison — `[ "$a" ">" "$b" ]` is a syntax error in zsh, and the loop would spin until it timed out on every round.
+   - **The jq filter emits one line per match and `wc -l` does the counting.** Do not wrap the filter in `[...] | length`: `gh api --paginate` applies `--jq` to each page separately and concatenates the results, so a per-page `length` returns one number *per page* (`"1\n0\n0\n1"` once the PR has enough reviews to paginate). `[ "$n" -gt 0 ]` then fails with a non-integer error and the loop never sees its review. Counting lines aggregates across pages correctly.
 
    Typical turnaround is 1–2 minutes; the 15-minute timeout is a backstop. **If the timeout expires, stop the loop and report it** — do not re-request in a tight cycle.
 

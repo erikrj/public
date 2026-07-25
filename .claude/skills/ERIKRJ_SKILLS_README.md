@@ -58,7 +58,7 @@ These skills operate on the PR for your **current branch**. They are split by re
 | `pr-open` | Takes the working tree to an open draft PR in one step: fresh `{user}/{name}` branch off updated `origin/main`, commit, push, create. Composes `branch-clean` + `commit` + `pr-create`. Stops if the branch already has an open PR. | Stages + commits | Pushes + opens draft PR |
 | `pr-review-loop [max-rounds]` | Drives the full review cycle unattended until the PR settles. Composes `pr-comments-fix` + `commit-push` + `pr-comments-resolve` per round. Requires a clean working tree. | Yes (commits) | Requests reviews, pushes, replies, resolves |
 | `pr-comments` | Lists every comment on the PR (review summaries, inline diff comments, conversation comments) with full details and resolution status. Read-only. | No | Reads only |
-| `pr-comments-fix` | Triages every comment into `fix` / `reject` / `escalate`, edits the working tree for the fixes, and records verdicts and reasons to `.git/pr-triage-{n}.json`. Does not commit, push, reply, or resolve. | Yes (working tree) | Reads only |
+| `pr-comments-fix` | Triages every comment into `fix` / `reject` / `escalate`, edits the working tree for the fixes, and records verdicts and reasons to `.git/pr-triage-{number}.json`. Does not commit, push, reply, or resolve. | Yes (working tree) | Reads only |
 | `pr-comments-resolve` | Closes out threads: fixed ones are verified as **committed** then replied to and resolved; rejected ones are replied to with the reason and resolved. Escalated ones are replied to and left open. Never edits code. | No | Reads + writes |
 
 All of them resolve the PR from the current branch and pull comments from the four places GitHub stores them (review summaries, inline diff comments, issue/conversation comments, and GraphQL review-thread state).
@@ -133,15 +133,21 @@ Two skills work together to surface and fix GitHub's security and quality alerts
 
 An unattended `pr-review-loop` stops at the first permission prompt, which defeats the point. `.claude/settings.json` in this repository allowlists the specific git and `gh` subcommands the loop needs, and denies the ones it must never reach for:
 
-- **Allowed** — `git status/diff/log/show/rev-parse/fetch/add/commit/push/switch/branch/stash`, `gh pr`, `gh api`, `gh repo view`, `jq`, `date`, `sleep`.
+- **Allowed** — `git status/diff/log/show/rev-parse/fetch/add/commit/switch/branch/stash`, the two exact push forms below, `gh pr`, `gh api`, `gh repo view`, `jq`, `date`, `sleep`.
 - **Denied** — `git push --force`, `git push -f`, `git push --force-with-lease`, `git reset --hard`, `git clean`, `git branch -D`, `gh api -X`, `gh api --method`, `gh pr merge`, `gh repo delete`.
 
-Subcommands are enumerated rather than blanket-allowing `Bash(git *)` so the allowlist cannot widen into a force-push or a hard reset. Deny rules take precedence over allow rules.
+Subcommands are enumerated rather than blanket-allowing `Bash(git *)`. Deny rules take precedence over allow rules.
 
-Two of the deny rules are less obvious than they look:
+### What the deny rules can and cannot do
 
-- **`gh api -X` / `gh api --method`.** Denying `gh pr merge` and `gh repo delete` is cosmetic on its own, because `gh api` reaches the same endpoints over REST — `gh api repos/{owner}/{repo}/pulls/{n}/merge -X PUT` merges a PR that `gh pr merge` is denied from touching. Blocking the method flags closes that path while leaving the loop's own calls intact: it only ever issues GETs and the implicit POSTs that `-f` produces (thread replies and GraphQL), neither of which passes `-X`.
-- **`git push --force-with-lease`.** Denied deliberately, even though it is the safe form of a force-push and `rebase` uses it as its normal operation. The consequence is that `/rebase` prompts for confirmation once per run rather than force-pushing silently. That is the intended trade: `rebase` is invoked by hand and rewrites published history, so a prompt is appropriate, while the unattended loop must never reach a force-push in any form. Listing it explicitly also means the behavior does not depend on whether `Bash(git push --force:*)` happens to prefix-match the longer flag.
+**Permission rules are prefix matches on the command string, so a deny rule only fires when the flag it names appears exactly where the rule puts it.** `Bash(gh api -X:*)` does not match `gh api repos/{owner}/{repo}/pulls/{n}/merge -X PUT`, because that command does not *start* with `gh api -X`. The same is true of `git push origin HEAD --force`. Treat the deny list as a guard against the common, literal form — not as a boundary that cannot be walked around by moving a flag.
+
+The control that actually holds is the **narrow allowlist**:
+
+- **`git push` is allowed only as `Bash(git push)` and `Bash(git push -u origin HEAD)`** — the two exact forms `commit-push` and `pr-create` issue. Any other push, with a flag anywhere in it, matches no allow rule and therefore prompts. That is what genuinely keeps the unattended loop away from a force-push, and it does not depend on out-flanking the deny list.
+- **`gh api` is allowed broadly** (`Bash(gh api:*)`), because the loop calls many endpoints and the paths vary per PR. This is a real capability worth understanding: anything reachable over the GitHub REST or GraphQL API is reachable from an allowed `gh api` call. What keeps merges and deletions out of reach is that the skills never issue them, not that the permission layer forbids them.
+
+One deny rule is deliberate rather than defensive: **`git push --force-with-lease`** is the safe form of a force-push and `rebase` uses it as its normal operation. Denying it means `/rebase` prompts once per run instead of force-pushing silently — appropriate for a hand-invoked command that rewrites published history.
 
 ## Adding a skill
 
