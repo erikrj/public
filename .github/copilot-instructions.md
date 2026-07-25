@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.07.25.0929
+  version: 2026.07.25.0936
 ---
 
 # Copilot Instructions
@@ -91,6 +91,17 @@ Where a capability must actually be withheld, narrow the **allow** list to the e
 **GEN-009** — When a `SKILL.md` body changes what the skill does, its frontmatter `description` must be updated in the same change to match. The description is the only text shown in the command list and in the model's skill listing, so a stale one causes the skill to be invoked for the wrong task or skipped for the right one — a failure that never surfaces when reading the skill itself, only when something else picks it.
 
 Treat these as description-affecting changes: gaining or losing an outcome (e.g. a skill that only fixed things now also rejects them), a change of scope (operating on a narrower or wider set of inputs), or a change in what the skill refuses to do. Reformatting, clarifying, or adding detail to an existing documented behavior does not require a description change. Flag a body change that adds or removes a documented behavior while the `description` line is untouched.
+
+### Skill Tool Declarations
+
+**GEN-010** — Every command a `SKILL.md` instructs the agent to run must be covered by that skill's `allowed-tools` frontmatter, and — where the skill is meant to run unattended — by the `permissions.allow` list in `.claude/settings.json`. This is easy to violate while fixing something else: editing a shell snippet to add a helper such as `wc`, `tr`, `sed`, or `xargs` introduces a command the declarations do not cover, and the skill then stalls on a permission prompt at exactly the step that was just repaired.
+
+Check the two directions separately, because they fail differently:
+
+- A command in a snippet that is **missing** from `allowed-tools` blocks the skill at runtime.
+- An entry in `allowed-tools` that **no snippet uses** grants the skill more than it needs and should be removed.
+
+When a change adds a command to a snippet, verify it appears in `allowed-tools`, in `settings.json` if the skill runs unattended, and in any documentation that enumerates the allowed commands.
 
 ---
 

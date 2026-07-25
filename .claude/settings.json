@@ -22,7 +22,9 @@
       "Bash(gh auth status:*)",
       "Bash(jq:*)",
       "Bash(date:*)",
-      "Bash(sleep:*)"
+      "Bash(sleep:*)",
+      "Bash(wc:*)",
+      "Bash(tr:*)"
     ],
     "deny": [
       "Bash(git push --force:*)",

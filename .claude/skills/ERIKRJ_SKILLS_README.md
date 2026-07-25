@@ -146,7 +146,7 @@ Two skills work together to surface and fix GitHub's security and quality alerts
 
 An unattended `pr-review-loop` stops at the first permission prompt, which defeats the point. `.claude/settings.json` in this repository allowlists the specific git and `gh` subcommands the loop needs, and denies the ones it must never reach for:
 
-- **Allowed** — `git status/diff/log/show/rev-parse/fetch/add/commit/switch/branch/stash`, the two exact push forms below, `gh pr`, `gh api`, `gh repo view`, `jq`, `date`, `sleep`.
+- **Allowed** — `git status/diff/log/show/rev-parse/fetch/add/commit/switch/branch/stash`, the two exact push forms below, `gh pr`, `gh api`, `gh repo view`, `jq`, `date`, `sleep`, `wc`, `tr`.
 - **Denied** — `git push --force`, `git push -f`, `git push --force-with-lease`, `git reset --hard`, `git clean`, `git branch -D`, `gh api -X`, `gh api --method`, `gh pr merge`, `gh repo delete`.
 
 Subcommands are enumerated rather than blanket-allowing `Bash(git *)`. Deny rules take precedence over allow rules.

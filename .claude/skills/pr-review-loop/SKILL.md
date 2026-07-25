@@ -1,13 +1,13 @@
 ---
 name: pr-review-loop
 description: Drive the full Copilot review cycle unattended — request review, fix real findings, reject false positives, push, resolve threads, repeat until settled
-allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Bash(date:*), Bash(sleep:*), Read, Edit, Write, Grep, Glob
+allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Bash(date:*), Bash(sleep:*), Bash(wc:*), Bash(tr:*), Read, Edit, Write, Grep, Glob
 disable-model-invocation: true
 arguments: [max-rounds]
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-review-loop
-  version: 2026.07.25.0917
+  version: 2026.07.25.0936
 ---
 
 Run the entire PR review cycle for the **current branch** without a human in the loop: request a Copilot review, wait for it, fix what is real, reject what is not, commit and push, reply on and resolve every thread, then go around again. Stop when the PR has settled, and hand back a report the author can audit in one pass.
