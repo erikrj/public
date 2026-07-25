@@ -57,10 +57,15 @@ The loop never force-pushes and never marks the PR ready for review — that sta
 
 ### What to read when it finishes
 
-The run report ends with two consolidated lists, and they are the point of reviewing at all:
+The run report ends with three lists, and they are the point of reviewing at all:
 
 - **Rejected without a code change** — every place the agent overrode a reviewer on your behalf, with the reason posted to GitHub. Read this first.
 - **Needs your decision** — escalations and churn.
+- **The final audit** — everything still open on the PR, each with a recommendation.
+
+The audit is a fresh query against GitHub, not a summary of what the loop believes it did. That distinction is the whole value: a `resolveReviewThread` call that failed silently, a thread that appeared after the last fetch, or a reply that posted while the resolve did not would otherwise leave the run reported as finished while you still see open comments on the PR page. Each open item is paired with why it is open — escalated, churn, not fixed, uncommitted, blocked, a failed API call, a comment type that has no resolve state, or never triaged — and a concrete next action rather than an invitation to go look.
+
+A thread the loop **never triaged** is reported as a defect in the run, not as a decision waiting on you. Those two must never read the same.
 
 ## PR review workflow
 
