@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.07.18.1104
+  version: 2026.07.25.1447
 ---
 
 # Copilot Instructions
@@ -63,6 +63,95 @@ Additional domains will be added over time. New rules within a domain are append
 - `version` — a `YYYY.MM.DD.HHMM` timestamp identifying the published revision, bumped whenever the skill changes.
 
 A skill whose `SKILL.md` is missing its frontmatter, the `metadata` block, or any of these three fields must be flagged.
+
+### Paginated CLI Output
+
+**GEN-007** — When a shell snippet counts or aggregates results from `gh api --paginate`, the aggregation must not be performed inside the `--jq` filter. `gh` applies `--jq` to **each page separately** and concatenates the outputs, so a filter ending in `| length` emits one number *per page* (`"1\n0\n0\n1"`), not one total. Any numeric test on that value then fails with a non-integer expression error, and — because the failure looks like "no results" — the bug stays invisible until the data grows past a single page.
+
+Emit one line per matching item and aggregate in the shell instead:
+
+```sh
+# wrong — one count per page
+n=$(gh api "$endpoint" --paginate --jq '[.[] | select(...)] | length')
+
+# right — one line per match, counted once
+n=$(gh api "$endpoint" --paginate --jq '.[] | select(...) | .id' | wc -l | tr -d ' ')
+```
+
+The same applies to any `--jq` filter whose result is a scalar summary (`length`, `add`, `max`, `any`) rather than a stream of items. Verify such snippets against a forced multi-page response (`?per_page=1`), not just the single-page case.
+
+### Permission Rules
+
+**GEN-008** — A `deny` rule in `.claude/settings.json` must not be relied on to block a command that can express the same operation with its flags in a different position. Permission rules match the command string from the left: a rule written without a wildcard (`Bash(git push)`) matches that command **exactly**, and a rule ending in `:*` or `*` (`Bash(gh api -X:*)`) matches commands that **begin** with that prefix. Neither form can express "this flag anywhere in the command", so `Bash(gh api -X:*)` does not block `gh api repos/o/r/pulls/1/merge -X PUT`, and `Bash(git push --force:*)` does not block `git push origin HEAD --force`.
+
+Where a capability must actually be withheld, narrow the **allow** list to the exact invocations that are needed rather than denying the ways around it — an unmatched command prompts, which is the safe default. Deny rules remain useful as a guard against the common literal form, but documentation must not describe them as a boundary. When a broad allow rule is genuinely required (e.g. `Bash(gh api:*)`, whose paths vary per call), say plainly what it permits and what actually constrains it.
+
+### Skill Description Accuracy
+
+**GEN-009** — When a `SKILL.md` body changes what the skill does, its frontmatter `description` must be updated in the same change to match. The description is the only text shown in the command list and in the model's skill listing, so a stale one causes the skill to be invoked for the wrong task or skipped for the right one — a failure that never surfaces when reading the skill itself, only when something else picks it.
+
+Treat these as description-affecting changes: gaining or losing an outcome (e.g. a skill that only fixed things now also rejects them), a change of scope (operating on a narrower or wider set of inputs), or a change in what the skill refuses to do. Reformatting, clarifying, or adding detail to an existing documented behavior does not require a description change. Flag a body change that adds or removes a documented behavior while the `description` line is untouched.
+
+### Skill Tool Declarations
+
+**GEN-010** — Every command a `SKILL.md` instructs the agent to run must be covered by that skill's `allowed-tools` frontmatter, and — where the skill is meant to run unattended — by the `permissions.allow` list in `.claude/settings.json`. This is easy to violate while fixing something else: editing a shell snippet to add a helper such as `wc`, `tr`, `sed`, or `xargs` introduces a command the declarations do not cover, and the skill then stalls on a permission prompt at exactly the step that was just repaired.
+
+Check the two directions separately, because they fail differently:
+
+- A command in a snippet that is **missing** from `allowed-tools` blocks the skill at runtime.
+- An entry in `allowed-tools` that **no snippet uses** grants the skill more than it needs and should be removed.
+- A command that is declared but **written so it cannot match** is the subtlest of the three, because the declaration looks correct. Since rules match the command string from the left (**GEN-008**), an environment-variable prefix moves the command name out of first position: `SINCE="$x" gh api ...` begins with `SINCE=`, so it matches no `Bash(gh api:*)` rule and prompts despite `gh api` being allowlisted. Write the snippet so the command name comes first and pass values by flag — `gh api ... | jq --arg since "$x" ...` — rather than by env prefix.
+
+When a change adds a command to a snippet, verify it appears in `allowed-tools`, in `settings.json` if the skill runs unattended, and in any documentation that enumerates the allowed commands.
+
+### Deny Versus Prompt
+
+**GEN-011** — Do not deny a command in order to make it prompt. A `deny` rule **refuses** a command outright, with no opportunity to approve it; a command matching **no allow rule** is what produces a prompt. The two are frequently confused because both stop an unattended run, but they differ exactly where it matters: a denied command can never proceed, so denying one that a hand-invoked skill legitimately needs does not add a confirmation step to that skill — it breaks the skill.
+
+Before adding a `deny` entry, check whether any documented workflow in the repository issues that command. If one does, the correct action is to leave it off the `allow` list and add no deny rule at all:
+
+```jsonc
+// wrong — /rebase can no longer push, and no prompt is offered
+"deny": ["Bash(git push --force-with-lease:*)"]
+
+// right — not allowlisted, so it prompts when invoked by hand
+// and stays unreachable in unattended runs
+"allow": ["Bash(git push)", "Bash(git push -u origin HEAD)"]
+```
+
+Reserve `deny` for commands no workflow in the repository should ever run. Flag any documentation that describes a deny rule as causing a prompt.
+
+### Paginated GraphQL Connections
+
+**GEN-012** — A GraphQL connection fetched with a bare `first: N` must not be treated as complete. GitHub returns at most `N` items and reports the rest only through `pageInfo`, so a query like `reviewThreads(first: 100)` silently truncates on the 101st item. The resulting bug is always a **false negative** — items that exist are reported as absent — which is the failure mode least likely to be noticed, because the output looks like a clean empty result rather than an error.
+
+Declare a cursor variable and return `pageInfo` so `gh api graphql --paginate` can walk every page:
+
+```graphql
+# wrong — truncates at 100, silently
+reviewThreads(first: 100) { nodes { id isResolved } }
+
+# right — --paginate follows the cursor to the end
+reviewThreads(first: 100, after: $endCursor) {
+  pageInfo { hasNextPage endCursor }
+  nodes { id isResolved }
+}
+```
+
+The query must also declare `$endCursor: String` in its variable list. Note that `--paginate` emits **one JSON document per page**, so collect nodes across pages before counting or filtering — the same aggregation trap as **GEN-007**:
+
+```sh
+gh api graphql --paginate -f query='...' -F owner=o -F repo=r -F number=1 \
+  | jq -s '[.[].data.repository.pullRequest.reviewThreads.nodes[]]'
+```
+
+Apply this wherever a truncated result would be read as authoritative: counts, completeness checks, and any audit that reports "nothing found".
+
+### Pull Request Descriptions
+
+**GEN-013** — A pull request's title and description must describe the change as it stands at review time, not as it was first proposed. This repository squash-merges, so the PR title and body become the commit message on `main` — a claim that was true in the first push and falsified by a later one does not merely mislead a reviewer, it lands in the permanent history of the default branch, where nothing later corrects it.
+
+Re-read the description whenever the diff changes materially: a behavior removed, a mechanism replaced, a file no longer touched, a rationale that no longer holds. Flag any statement in the description that the final diff contradicts, quoting both. This applies with equal force to claims about configuration and security posture, where a reviewer is most likely to trust the summary instead of re-deriving it from the diff.
 
 ---
 
