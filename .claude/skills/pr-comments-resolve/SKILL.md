@@ -5,10 +5,12 @@ allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Read, Grep, Glob
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-comments-resolve
-  version: 2026.07.24.2236
+  version: 2026.07.25.0855
 ---
 
-Close out every open thread on the GitHub pull request associated with the **current branch**. A thread is closed one of two ways: the change it asked for was made and committed, or it was rejected with a stated reason. Both get a reply and are marked resolved. Only threads that are genuinely unresolvable — the fix is uncommitted, or the point needs the author's decision — are left open.
+Close out every open **inline review thread** on the GitHub pull request associated with the **current branch**. A thread is closed one of two ways: the change it asked for was made and committed, or it was rejected with a stated reason. Both get a reply and are marked resolved. Only threads that are genuinely unresolvable — the fix is uncommitted, or the point needs the author's decision — are left open.
+
+Scope is inline review threads specifically, because those are the only comments GitHub gives a resolvable state. Review **summary** bodies and issue / conversation comments cannot be resolved via the API; they are reported so nothing is silently dropped, but this skill does not close them.
 
 This skill does **not** edit code. Run `pr-comments-fix` first to make the changes and record the triage verdicts.
 
@@ -32,10 +34,12 @@ This skill does **not** edit code. Run `pr-comments-fix` first to make the chang
                comments(first:50){ nodes{ databaseId author{login} body createdAt } } } } } } }
    ' -F owner={owner} -F repo={repo} -F number={number}
    ```
-   Also fetch issue / conversation comments (these have no resolve state, so they can only be replied to, not resolved):
+   Also fetch the two comment types that have **no resolve state** — review summary bodies and issue / conversation comments:
    ```sh
+   gh api repos/{owner}/{repo}/pulls/{number}/reviews --paginate
    gh api repos/{owner}/{repo}/issues/{number}/comments --paginate
    ```
+   These cannot be resolved and are **not** part of the actionable list built in step 4. Fetch them so that any that asked for a change can be surfaced in the report (step 7) rather than silently dropped — if one needs action, it is the author's to take or a reason to re-run `pr-comments-fix`.
 
 3. Load the triage record written by `pr-comments-fix` at `.git/pr-triage-{number}.json`, keyed by `commentId`. It carries the **verdict** (`fix` / `reject` / `escalate`) and the **reason** for each comment. If the file is missing (this skill was run standalone), triage the threads yourself using the verdict definitions in the `pr-comments-fix` skill — the classification rules live there and must not be duplicated or weakened here.
 
@@ -90,5 +94,7 @@ This skill does **not** edit code. Run `pr-comments-fix` first to make the chang
    - the **file path** and **line**
    - the comment **body** (brief)
    - the outcome: **fixed + resolved** (with the cited sha), **rejected + resolved** (with the reason), **left open — uncommitted**, **left open — not fixed**, or **left open — needs your decision**
+
+   Then list any **unresolvable** comments from step 2 — review summary bodies or issue / conversation comments that asked for a change. They cannot be closed via the API, so name them explicitly rather than letting them vanish between the threads that could be.
 
    End with a short summary: how many threads were resolved as fixed, how many resolved as rejected, and how many left open and why. Because rejected threads are closed without a code change, always list them together at the end under a clear heading — they are the part of this run most worth the author's eyes.

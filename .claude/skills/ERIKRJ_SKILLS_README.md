@@ -22,7 +22,7 @@ Every comment gets exactly one verdict. The question is always *"is there a real
 
 | Verdict | When | What happens |
 |---------|------|--------------|
-| `fix` | A genuine defect (bug, security issue, bad logic, unhandled edge case, resource leak, test that does not test what it claims) **or** a genuine violation of a rule in `copilot-instructions.md` / `CLAUDE.md` | Code is edited, committed, pushed. The thread gets a reply citing the fixing commit, then is resolved. |
+| `fix` | A genuine defect (bug, security issue, bad logic, unhandled edge case, resource leak, test that does not test what it claims) **or** a genuine violation of a rule in `.github/copilot-instructions.md` / `CLAUDE.md` | Code is edited, committed, pushed. The thread gets a reply citing the fixing commit, then is resolved. |
 | `reject` | The comment does not identify a real problem: factually wrong about the code, already handled elsewhere, subjective style not tied to a rule, contradicts a deliberate design, or asks for out-of-scope work | No code change. The thread gets a reply stating why, then is resolved. |
 | `escalate` | Genuinely needs a decision only you can make (a product trade-off, a business rule the agent cannot verify, a change with wide blast radius) | Left open, replied to, and surfaced in the report. Ends the loop. |
 
@@ -134,9 +134,14 @@ Two skills work together to surface and fix GitHub's security and quality alerts
 An unattended `pr-review-loop` stops at the first permission prompt, which defeats the point. `.claude/settings.json` in this repository allowlists the specific git and `gh` subcommands the loop needs, and denies the ones it must never reach for:
 
 - **Allowed** — `git status/diff/log/show/rev-parse/fetch/add/commit/push/switch/branch/stash`, `gh pr`, `gh api`, `gh repo view`, `jq`, `date`, `sleep`.
-- **Denied** — `git push --force`, `git push -f`, `git reset --hard`, `git clean`, `git branch -D`, `gh pr merge`, `gh repo delete`.
+- **Denied** — `git push --force`, `git push -f`, `git push --force-with-lease`, `git reset --hard`, `git clean`, `git branch -D`, `gh api -X`, `gh api --method`, `gh pr merge`, `gh repo delete`.
 
 Subcommands are enumerated rather than blanket-allowing `Bash(git *)` so the allowlist cannot widen into a force-push or a hard reset. Deny rules take precedence over allow rules.
+
+Two of the deny rules are less obvious than they look:
+
+- **`gh api -X` / `gh api --method`.** Denying `gh pr merge` and `gh repo delete` is cosmetic on its own, because `gh api` reaches the same endpoints over REST — `gh api repos/{owner}/{repo}/pulls/{n}/merge -X PUT` merges a PR that `gh pr merge` is denied from touching. Blocking the method flags closes that path while leaving the loop's own calls intact: it only ever issues GETs and the implicit POSTs that `-f` produces (thread replies and GraphQL), neither of which passes `-X`.
+- **`git push --force-with-lease`.** Denied deliberately, even though it is the safe form of a force-push and `rebase` uses it as its normal operation. The consequence is that `/rebase` prompts for confirmation once per run rather than force-pushing silently. That is the intended trade: `rebase` is invoked by hand and rewrites published history, so a prompt is appropriate, while the unattended loop must never reach a force-push in any form. Listing it explicitly also means the behavior does not depend on whether `Bash(git push --force:*)` happens to prefix-match the longer flag.
 
 ## Adding a skill
 
