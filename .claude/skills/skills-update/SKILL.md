@@ -5,7 +5,7 @@ allowed-tools: Bash(gh:*), Bash(jq:*), Bash(mkdir:*), Bash(git:*), Read, Write, 
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/skills-update
-  version: 2026.07.16.0650
+  version: 2026.07.26.0811
 ---
 
 Refresh every installed skill — **and** the repository's other tracked
@@ -57,13 +57,14 @@ those; otherwise do them all.
      ```sh
      ls -d "$SKILLS_DIR"/*/SKILL.md
      ```
-   - **Tracked files** — standalone files outside the skills tree that carry their
-     own `metadata.source` frontmatter. Currently this is:
+   - **Tracked files** — standalone files that carry their own `metadata.source`
+     frontmatter but are not a skill's `SKILL.md`. Currently these are:
      - `<repo-root>/.github/copilot-instructions.md`
+     - `<SKILLS_DIR>/ERIKRJ_SKILLS_README.md`
 
      Include a tracked file only if it exists locally; note any that are missing.
-     (This list is intentionally explicit — these files live outside the skills
-     tree and cannot be discovered by walking `SKILLS_DIR`.)
+     (This list is intentionally explicit — these files are not discovered by the
+     `<name>/SKILL.md` walk, even when they sit inside `SKILLS_DIR`.)
 
 3. For each item (a skill's `SKILL.md` or a tracked file), extract its
    `metadata.source`. It is the `source:` line nested under the `metadata:` key in
