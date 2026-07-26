@@ -7,7 +7,7 @@ arguments: [rounds]
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-review-loop
-  version: 2026.07.25.1426
+  version: 2026.07.26.0811
 ---
 
 Run the entire PR review cycle for the **current branch** without a human in the loop: request a Copilot review, wait for it, fix what is real, reject what is not, commit and push, reply on and resolve every thread, then go around again. Stop when the PR has settled, and hand back a report the author can audit in one pass.
@@ -147,7 +147,13 @@ The audit **must** use the paginated form. An audit that truncates reports "no o
 
 If nothing is unresolved, say so explicitly and give the number of threads checked. "No open comments" is only worth reading when it is clear what was counted.
 
-Otherwise list **every** remaining open item, and pair each with a concrete recommendation — the next action, not an invitation to go look. Cross-reference the triage record to explain why each is still open; a thread the loop never triaged is a more serious finding than one it deliberately escalated, and the two must not read the same.
+Otherwise present **every** remaining open item in a single table — this table is the last thing in the report (see below):
+
+| Item | Why it is still open | Your next step |
+|---|---|---|
+| `path:line` — one-line gist of the comment | one of the reasons below, with the round it happened in | a concrete action, not an invitation to go look |
+
+Cross-reference the triage record to explain why each is still open; a thread the loop never triaged is a more serious finding than one it deliberately escalated, and the two must not read the same. Use these reasons, and shape the next step accordingly:
 
 | Why it is open | Recommendation to give |
 |---|---|
@@ -169,6 +175,6 @@ Produce one report for the whole run, written to be read by someone who was not 
 - **Any rules added to `.github/copilot-instructions.md`**, by code, with the finding each came from. These change how every future PR is reviewed, so they need the author's eyes even though nothing in this PR broke.
 - **A consolidated "rejected without a code change" list across all rounds**, each with its file, the reviewer's point, and the reason posted to GitHub. This is the highest-value part of the report — it is every place the loop overrode a reviewer on the author's behalf, and it is what the author should read first.
 - **A consolidated "needs your decision" list** for escalations and churn, with what the disagreement is.
-- **The final audit** — every comment still open on GitHub, each with why it is open and its recommendation. End the report with this section, so the last thing read is the list of what still needs a human. If the audit came back empty, say so and give the count checked.
+- **The final audit table** — the table from the audit above: every comment still open on GitHub, each with why it is open and the author's next step. This table is the **last thing in the report** — nothing after it, not even a closing sentence — so the run always ends on the list of what still needs a human. If the audit came back empty, end instead with the explicit "no open comments" line and the count of threads checked.
 
 Report honestly. If a round ended on an error, say so and show the output rather than presenting a partial run as a clean one. The audit is the one section that must never be softened: reporting a run as finished while comments are open on GitHub is the failure this skill exists to prevent, and the author will find out from the PR page rather than from you.

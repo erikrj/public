@@ -1,3 +1,10 @@
+---
+metadata:
+  owner: Erik Jensen (@erikrj)
+  source: https://github.com/erikrj/public/blob/main/.claude/skills/ERIKRJ_SKILLS_README.md
+  version: 2026.07.26.0811
+---
+
 # Agent skills
 
 This directory holds repository-scoped agent skills. Each skill lives in `<skillname>/SKILL.md`; the directory name is the skill name.
@@ -10,9 +17,12 @@ The skills are designed around one end-to-end loop: make a change, ship it to a 
 1. ask Claude to make changes
 2. pr-open           # fresh branch off main + commit + push + draft PR
 3. pr-review-loop    # request review → fix / reject → push → resolve → repeat
-4. review the result, mark ready, merge
-5. branch-done       # switch back to main, pull, drop the branch
+4. more changes while the PR is open? commit-push, then back to 3
+5. review the result, mark ready, merge
+6. branch-done       # switch back to main, pull, drop the branch
 ```
+
+Once the PR is open, further changes — whether you make them or you ask Claude to — ship with `commit-push`, which adds them to the same PR; `pr-open` refuses to run again for a branch that already has one. Then run `pr-review-loop` again so the new commits get reviewed.
 
 Step 3 is the part that used to require you. `pr-review-loop` drives the whole review cycle unattended: it requests a Copilot review, waits for it, decides what is real, fixes it, pushes, replies on every thread, resolves them, and goes around again until the PR settles.
 
