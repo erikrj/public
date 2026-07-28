@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.07.25.1447
+  version: 2026.07.27.1630
 ---
 
 # Copilot Instructions
@@ -378,13 +378,16 @@ Reusing the catalog `valibot` and the shared `@nr1e/commons/valibot` helpers kee
 
 ### Global ID Format
 
-**GQL-014** — Relay global IDs (the `id: ID!` required by **GQL-011**) must be formatted as `<category><ksuid>`, where `<category>` is a short two- or three-letter code identifying the node type and `<ksuid>` is the record's KSUID. Clients must treat the global ID as an opaque value; the category prefix is for server-side type routing only. Concatenating the category with the KSUID makes each ID self-describing to the server and globally unique across types. Each node type must use a distinct category code, and a type's category code must never change once assigned.
+**GQL-014** — Relay global IDs (the `id: ID!` required by **GQL-011**) must be formatted as `<category><ksuid>`, where `<category>` matches `[a-z]{2,3}_?` — a short two- or three-letter code identifying the node type, optionally followed by a single underscore — and `<ksuid>` is the record's KSUID. Clients must treat the global ID as an opaque value; the category prefix is for server-side type routing only. Prefixing the KSUID with the category makes each ID self-describing to the server and globally unique across types. Each node type must use a distinct category, and a type's category must never change once assigned.
 
-Example — a `Payment` node (category `pmt`) and a `PaymentPlan` node (category `ppl`):
+The trailing underscore is optional and exists for legibility: a bare concatenation leaves no visible boundary between the code and the KSUID (`ctc2Nc8xVQ1rL9mKZ4tYbWpEjHq`). No other separator character is permitted, and the code itself remains letters only. The underscore is **part of the category**, so `ctc` and `ctc_` are different categories and are not interchangeable — a type that ships one must not later switch to the other.
+
+Example — a `Payment` node (category `pmt`) and a `PaymentPlan` node (category `ppl`) without the separator, and a `Contact` node (category `ctc_`) with it:
 
 ```
 pmt2Nc8xVQ1rL9mKZ4tYbWpEjHq
 ppl2Nc8xVQ1rL9mKZ4tYbWpEjHq
+ctc_2Nc8xVQ1rL9mKZ4tYbWpEjHq
 ```
 
 ---
