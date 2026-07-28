@@ -1,16 +1,16 @@
 ---
 name: pr-review-loop
-description: Drive the full Copilot review cycle unattended — request review, fix real findings, reject false positives, push, resolve threads, repeat until settled
+description: Drive the full Copilot review cycle unattended — wait out any in-flight review, request one when none is running, fix real findings, reject false positives, push, resolve threads, repeat until settled
 allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Bash(date:*), Bash(sleep:*), Bash(wc:*), Bash(tr:*), Read, Edit, Write, Grep, Glob
 disable-model-invocation: true
 arguments: [rounds]
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-review-loop
-  version: 2026.07.26.0811
+  version: 2026.07.27.1744
 ---
 
-Run the entire PR review cycle for the **current branch** without a human in the loop: request a Copilot review, wait for it, fix what is real, reject what is not, commit and push, reply on and resolve every thread, then go around again. Stop when the PR has settled, and hand back a report the author can audit in one pass.
+Run the entire PR review cycle for the **current branch** without a human in the loop: get a Copilot review in flight, wait for it to finish, fix what is real, reject what is not, commit and push, reply on and resolve every thread, then go around again. Stop when the PR has settled, and hand back a report the author can audit in one pass.
 
 `$rounds` caps the number of review rounds (default **20**). The cap exists to bound cost and to stop arguments with a reviewer that will not be satisfied — hitting it is a reportable outcome, not a failure to retry harder. In practice the loop settles well before the cap; churn and escalation are the conditions that normally end it.
 
@@ -53,37 +53,58 @@ Repeat until a stop condition below is met. Announce the round number before eac
 
    If there are already unresolved, actionable threads, skip to step 4 — there is no point asking for another review when the last one has not been answered. Otherwise continue to step 2.
 
-2. **Request a review.** Capture the cutoff timestamp *first*, so a review that lands mid-request is not missed:
+2. **Get a review in flight — do not blindly request one.** Many repositories request Copilot **automatically** the instant a PR is opened, so straight after `/pr-open` a review is already running. Requesting a second one is a duplicate that GitHub rejects, and treating that rejection as a hard error aborts the loop *before it triages anything* — leaving the PR with exactly the open threads this skill exists to close. That failure is invisible from the loop's own output: it reports a clean early exit while the reviewer's comments sit unanswered.
+
+   Establish the cutoff a new review has to beat, then request only when nothing is already running:
    ```sh
-   since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-   gh pr edit --add-reviewer "@copilot"
+   # newest Copilot review already on the PR; the sentinel covers "none yet"
+   prev=$(gh api repos/{owner}/{repo}/pulls/{number}/reviews --paginate \
+     | jq -s -r '[.[][] | select(.user.login=="copilot-pull-request-reviewer[bot]")
+                 | .submitted_at] | max // "1970-01-01T00:00:00Z"')
+
+   # is Copilot a requested reviewer right now? one line per match, counted once
+   pending=$(gh pr view --json reviewRequests \
+     -q '.reviewRequests[] | select(.login=="Copilot") | .login' | wc -l | tr -d ' ')
+
+   if [ "$pending" -eq 0 ]; then
+     gh pr edit --add-reviewer "@copilot"
+   fi
    ```
+   `jq -s` slurps every page into one array before taking `max`, so the cutoff is the newest review on the whole PR rather than the newest on the last page (**GEN-007**). ISO-8601 timestamps compare correctly as strings, which is what makes `max` safe here.
+
    `@copilot` is the special value `gh pr edit --add-reviewer` documents for requesting a Copilot review. The requested reviewer then appears on the PR as the login `Copilot`, and the review it submits is authored by `copilot-pull-request-reviewer[bot]` — the three names are not interchangeable, so match each to the surface it belongs to. If `gh pr edit` rejects the value, fall back to the REST endpoint, which takes the login:
    ```sh
    gh api repos/{owner}/{repo}/pulls/{number}/requested_reviewers -f 'reviewers[]=Copilot'
    ```
-   A draft PR is fine — Copilot reviews drafts. If the request fails for any other reason, stop and report; do not poll for a review that was never requested.
+   A draft PR is fine — Copilot reviews drafts. **A rejection saying the reviewer is already requested is success, not failure** — it reports the state this step is trying to reach. Only a request that fails for some *other* reason stops the loop.
 
-3. **Wait for the review.** Poll until a Copilot review newer than `$since` appears, with a hard timeout:
+3. **Wait for the review to finish.** Two conditions must both hold, and waiting on either one alone mis-fires in a different direction:
+
+   - **Copilot is no longer a requested reviewer.** GitHub clears the request when the review is submitted, so its presence is the authoritative "still working" signal. Waiting on the review record alone can match a review from an earlier round and start triaging while the current one is still being written.
+   - **A Copilot review newer than `$prev` exists.** Waiting on the absent request alone is worse, because that is also the state *before* any review is ever requested — the loop would sail straight through on an empty PR.
+
    ```sh
    deadline=$(( $(date +%s) + 900 ))
    while [ "$(date +%s)" -lt "$deadline" ]; do
-     n=$(gh api repos/{owner}/{repo}/pulls/{number}/reviews --paginate \
-       | jq -r --arg since "$since" '.[]
+     pending=$(gh pr view --json reviewRequests \
+       -q '.reviewRequests[] | select(.login=="Copilot") | .login' | wc -l | tr -d ' ')
+     landed=$(gh api repos/{owner}/{repo}/pulls/{number}/reviews --paginate \
+       | jq -s -r --arg prev "$prev" '.[][]
            | select(.user.login=="copilot-pull-request-reviewer[bot]"
-                    and .submitted_at > $since)
+                    and .submitted_at > $prev)
            | .submitted_at' | wc -l | tr -d ' ')
-     if [ "$n" -gt 0 ]; then echo "review landed"; break; fi
+     if [ "$pending" -eq 0 ] && [ "$landed" -gt 0 ]; then echo "review landed"; break; fi
      sleep 15
    done
    ```
-   Three things in that snippet are deliberate and must not be "simplified":
+   Four things in that snippet are deliberate and must not be "simplified":
 
+   - **Both conditions are required.** `[ "$pending" -eq 0 ]` alone is true before the first review is ever requested; `[ "$landed" -gt 0 ]` alone is true while Copilot is still writing the current one.
    - **The timestamp comparison happens inside jq**, which compares ISO-8601 strings correctly. Do not rewrite it as a shell string comparison — `[ "$a" ">" "$b" ]` is a syntax error in zsh, and the loop would spin until it timed out on every round.
-   - **The filter emits one line per match and `wc -l` does the counting.** Do not collapse it to `[...] | length`: `gh api --paginate` concatenates one result per page, so a per-page `length` returns one number *per page* (`"1\n0\n0\n1"` once the PR has enough reviews to paginate) and `[ "$n" -gt 0 ]` then fails with a non-integer error. Counting lines aggregates across pages correctly (**GEN-007**).
-   - **The command begins with `gh api`, and the cutoff reaches jq through `--arg`.** Do not prefix it with an environment assignment (`SINCE="$since" gh api ...`) and read `env.SINCE`. Permission rules match the command string from the left, so an env-prefixed command starts with `SINCE=` and matches no `Bash(gh api:*)` allow rule — the poll would then prompt on every iteration of an unattended loop (**GEN-008**). Piping to a separate `jq` keeps the command matchable and passes the value without quoting hazards.
+   - **Each filter emits one line per match and `wc -l` does the counting.** Do not collapse either to `[...] | length`: `gh api --paginate` concatenates one result per page, so a per-page `length` returns one number *per page* (`"1\n0\n0\n1"` once the PR has enough reviews to paginate) and `[ "$n" -gt 0 ]` then fails with a non-integer error. Counting lines aggregates across pages correctly (**GEN-007**).
+   - **The commands begin with `gh`, and the cutoff reaches jq through `--arg`.** Do not prefix either with an environment assignment (`PREV="$prev" gh api ...`) and read `env.PREV`. Permission rules match the command string from the left, so an env-prefixed command starts with `PREV=` and matches no `Bash(gh api:*)` allow rule — the poll would then prompt on every iteration of an unattended loop (**GEN-008**). Piping to a separate `jq` keeps the command matchable and passes the value without quoting hazards.
 
-   Typical turnaround is 1–2 minutes; the 15-minute timeout is a backstop. **If the timeout expires, stop the loop and report it** — do not re-request in a tight cycle.
+   Turnaround is typically 1–6 minutes from the request — measure it from when the PR was opened, not from when this skill started, since an auto-requested review is already partway through. The 15-minute timeout is a backstop. **If the timeout expires, stop the loop and report it** — do not re-request in a tight cycle.
 
 4. **Triage and fix.** Follow `.claude/skills/pr-comments-fix/SKILL.md` in full. Its verdict definitions (`fix` / `reject` / `escalate`) are authoritative — in particular, a finding is judged on whether it identifies a **real defect or rule violation**, not on whether it cites a rule code. It writes the triage record to `.git/pr-triage-{number}.json`.
 
@@ -117,7 +138,7 @@ Stop the loop and report when any of these holds:
 - **Churn** — a comment already rejected in an earlier round has been raised again on the same path with substantially the same content. `pr-comments-fix` flags this from the triage record. Two rejections of the same point means the disagreement is real and belongs to the author, not to another round.
 - **Escalation** — a finding was classified `escalate`. Finish the current round (fix, push, resolve everything else), then stop. An escalation is by definition a decision the loop cannot make.
 - **Round cap** — `$rounds` rounds have completed (default 20).
-- **Hard error** — the review request failed, the poll timed out, or the push was rejected.
+- **Hard error** — the review request failed for a reason other than "already requested", the poll timed out, or the push was rejected.
 
 Never resolve a thread just to satisfy a stop condition, and never mark the PR ready for review — the PR stays a draft for the author to review and promote.
 

@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.claude/skills/ERIKRJ_SKILLS_README.md
-  version: 2026.07.26.0811
+  version: 2026.07.27.1744
 ---
 
 # Agent skills
@@ -24,7 +24,9 @@ The skills are designed around one end-to-end loop: make a change, ship it to a 
 
 Once the PR is open, further changes — whether you make them or you ask Claude to — ship with `commit-push`, which adds them to the same PR; `pr-open` refuses to run again for a branch that already has one. Then run `pr-review-loop` again so the new commits get reviewed.
 
-Step 3 is the part that used to require you. `pr-review-loop` drives the whole review cycle unattended: it requests a Copilot review, waits for it, decides what is real, fixes it, pushes, replies on every thread, resolves them, and goes around again until the PR settles.
+Step 3 is the part that used to require you. `pr-review-loop` drives the whole review cycle unattended: it gets a Copilot review in flight, waits for it to finish, decides what is real, fixes it, pushes, replies on every thread, resolves them, and goes around again until the PR settles.
+
+Where a repository requests Copilot automatically on PR open, a review is already running by the time `pr-review-loop` starts. The loop detects that and waits for the in-flight review rather than requesting a duplicate — a duplicate request is rejected, and older versions treated that rejection as a hard error and exited before triaging anything.
 
 ### How the loop decides what to fix
 
@@ -61,7 +63,7 @@ This is the compounding part of the workflow — each PR that finds something ge
 | **Churn** | A comment already rejected in an earlier round was raised again on the same path. Two rejections of the same point means the disagreement is real and belongs to you. |
 | **Escalation** | A finding needs your decision. The round finishes everything else first. |
 | **Round cap** | `pr-review-loop <rounds>` rounds completed (default 20). |
-| **Hard error** | Review request failed, poll timed out, or the push was rejected as non-fast-forward (run `rebase`). |
+| **Hard error** | Review request failed for a reason other than "already requested", poll timed out, or the push was rejected as non-fast-forward (run `rebase`). |
 
 The loop never force-pushes and never marks the PR ready for review — that stays yours.
 
