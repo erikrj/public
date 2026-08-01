@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.07.27.1630
+  version: 2026.08.01.1250
 ---
 
 # Copilot Instructions
@@ -152,6 +152,36 @@ Apply this wherever a truncated result would be read as authoritative: counts, c
 **GEN-013** — A pull request's title and description must describe the change as it stands at review time, not as it was first proposed. This repository squash-merges, so the PR title and body become the commit message on `main` — a claim that was true in the first push and falsified by a later one does not merely mislead a reviewer, it lands in the permanent history of the default branch, where nothing later corrects it.
 
 Re-read the description whenever the diff changes materially: a behavior removed, a mechanism replaced, a file no longer touched, a rationale that no longer holds. Flag any statement in the description that the final diff contradicts, quoting both. This applies with equal force to claims about configuration and security posture, where a reviewer is most likely to trust the summary instead of re-deriving it from the diff.
+
+### Code Comments
+
+**GEN-014** — A comment must explain **why** the code is the way it is, not **what** it does. Both humans and coding agents read these comments, and both can already read the code — what neither can recover from the code is the reasoning that produced it: the business rule it encodes, the technical constraint it works around, the alternative that was tried and failed. That reasoning is what a future change needs in order to know whether the line may be altered, and it is lost the moment it is not written down. A comment restating the mechanics adds nothing recoverable and goes stale as soon as the line beneath it changes, so it eventually misleads.
+
+Comments must also be short, succinct, and accurate. Prefer one or two lines placed directly above the code they justify. Accuracy is required rather than encouraged: an incorrect comment is worse than no comment, because it is trusted.
+
+Flag these:
+
+- A comment that paraphrases the statement below it (`// increment the counter`, `// loop over the users`).
+- A comment that contradicts the code it sits above, or describes behavior the diff has since changed.
+- Commented-out code left in place; the history holds it, and it is not obvious to a later reader whether it is dead or pending.
+- A non-obvious constant, workaround, retry, ordering dependency, or deviation from a rule in this file that carries **no** comment explaining why. Several rules already require this explicitly (**TS-008**, **DDB-001**, **UI-001**).
+
+Do not flag the absence of a comment on code whose intent is evident, and do not ask for comment volume — this rule is not a license to override the "do not comment on comment density" guidance above.
+
+Example — prefer:
+
+```ts
+// Plaid caps transfer descriptions at 15 characters; longer values are
+// rejected at authorization time rather than truncated.
+const description = memo.slice(0, 15);
+```
+
+over:
+
+```ts
+// truncate the memo to 15 characters
+const description = memo.slice(0, 15);
+```
 
 ---
 
@@ -480,6 +510,38 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 ### Data Access
 
 **DDB-001** — DynamoDB access must go through [`dynamodb-toolbox`](https://www.dynamodbtoolbox.dev/) `Table` and `Entity` constructs and their actions (e.g. `GetItemCommand`, `PutItemCommand`, `UpdateItemCommand`, `QueryCommand`). Do not issue direct calls against the raw AWS SDK clients (`@aws-sdk/client-dynamodb` or `@aws-sdk/lib-dynamodb` `DynamoDBDocumentClient`) for reads or writes when a `dynamodb-toolbox` equivalent exists. Reach for the raw SDK only when `dynamodb-toolbox` does not support the operation (for example, table administration or a control-plane API it does not wrap); when you do, keep it to that operation and cite the reason in a comment.
+
+### Conditional Writes
+
+**DDB-002** — A read-back that recovers from a `ConditionalCheckFailedException` must be a **strongly consistent** read. The idiom — attempt a conditional write, and when the condition fails because the row already exists, read that row and return it — is how a create is made idempotent. It carries a trap specific to this situation: the row being read is by definition the one whose write just collided, so it is typically only seconds old, and DynamoDB's default eventually-consistent read can still miss a write that recent. The read then finds nothing, the code rethrows, and the duplicate the handler exists to absorb surfaces as an error — intermittently, and only under the concurrency the idempotency was written for, which is precisely when it is hardest to reproduce.
+
+Pass `consistent: true` on a `dynamodb-toolbox` `GetItemCommand`, or `ConsistentRead: true` when **DDB-001** justifies the raw SDK:
+
+```ts
+// wrong — the shared getter is eventually consistent, so it can miss the row
+} catch (error) {
+  if (error instanceof Error && error.name === 'ConditionalCheckFailedException') {
+    const existing = await getThing(entity, id);
+    if (existing) return existing;
+  }
+  throw error;
+}
+
+// right — read the same key strongly
+} catch (error) {
+  if (error instanceof Error && error.name === 'ConditionalCheckFailedException') {
+    const result = await entity
+      .build(GetItemCommand)
+      .key({ id })
+      .options({ consistent: true })
+      .send();
+    if (result.Item) return result.Item.detail;
+  }
+  throw error;
+}
+```
+
+Reusing a shared non-consistent getter (`getThing`, `getWlgTransaction`) is the usual way this is violated, because the call reads as obviously correct at the call site. Flag it wherever a conditional-write failure is recovered from, not only on create.
 
 
 
