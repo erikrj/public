@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.05.2058
+  version: 2026.09.05.2131
 ---
 
 # Copilot Instructions
@@ -408,25 +408,29 @@ Reusing the catalog `valibot` and the shared `@nr1e/commons/valibot` helpers kee
 
 ### Global ID Format
 
-**GQL-014** — Relay global IDs (the `id: ID!` required by **GQL-011**) must be formatted as `<category>_<uuidv7>`, where `<category>` matches `[a-z_]+`, an underscore separates it from the body, and `<uuidv7>` is a raw UUIDv7 in hex: 32 lowercase hex characters with the dashes removed. Nothing is re-encoded; the UUID is stored in its own hex form. Clients must treat the global ID as an opaque value; the category prefix is for server-side type routing only. Prefixing the body with the category makes each ID self-describing to the server and globally unique across types. Each node type must use a distinct category, and a type's category must never change once assigned.
+**GQL-014** — Relay global IDs (the `id: ID!` required by **GQL-011**) must be formatted as `<category>_<uuidv7>`, where `<category>` matches `[a-z_]+`, an underscore separates it from the body, and `<uuidv7>` is a UUIDv7 in its canonical dashed form. Nothing is re-encoded; the UUID is stored exactly as generated. Clients must treat the global ID as an opaque value; the category prefix is for server-side type routing only. Prefixing the body with the category makes each ID self-describing to the server and globally unique across types. Each node type must use a distinct category, and a type's category must never change once assigned.
 
-The separator is **appended by the generator, not by the caller** — `generateGlobalId('pmt')` and `generateGlobalId('pmt_')` both mint `pmt_…`, and neither produces `pmt__`. Do not concatenate an underscore at a call site to "help"; a category is written the same way everywhere and the generator normalizes it.
+The separator is **appended by the generator, not written by the caller** — `generateGlobalId('note')` and `generateGlobalId('note_')` both mint `note_…`, and neither produces `note__`. Do not concatenate an underscore at a call site to "help".
 
-The separator exists because the two halves overlap: a category is `[a-z_]+` and a hex body is `[0-9a-f]+`, so `a` through `f` are legal in both, and there is otherwise no character that marks the boundary. Hex never contains an underscore, so the **last** underscore in an ID is always the end of the category. An ID must therefore be split on that separator, or equivalently on the fixed 32-character body width from the right — never by matching the category greedily from the left, which runs past the boundary and eats the leading hex characters of the body. Flag any parser that does the latter.
+The separator is **not part of the category**. It divides the ID; it does not belong to either half. Parsing `note_01a07447-9f40-7747-a085-4640a7b20d7c` yields the category `note`, not `note_`. Flag any code that stores, registers, or compares a category with a trailing underscore.
 
-Example — a `Payment` node (category `pmt`), a `PaymentPlan` node (category `ppl`), and a `PaymentMethod` node with a multi-word category:
+An ID must be split at its **last** underscore. A category may contain underscores of its own — `user_account` is a single category — while a UUID contains none, so the last underscore is always the boundary and every earlier one belongs to the category. Splitting at the first underscore truncates every multi-word category (`user_account_…` would parse as `user`), and matching the category by character class from the left is worse still: a category is `[a-z_]+` and a UUID's hex is `[0-9a-f]`, so `a` through `f` are legal in both and the match runs into the body. Flag either.
+
+A category must be lowercase. `Note`, `User_account` and `UserAccount` are all invalid and must be rejected with an error rather than lowercased or otherwise normalized — a category is a constant chosen once per node type, so a bad one is a bootstrap bug, not input to clean up.
+
+Example — a `Note` node (category `note`), a `Payment` node (category `pmt`), and a `UserAccount` node with a multi-word category:
 
 ```
-pmt_01a07442f822755c82809b7935ae416e
-ppl_01a07442f824736eab1b85d804a2078b
-payment_method_01a07442f824736eab1b89d8564f8982
+note_01a0744a-17ed-708c-b1a7-e33d373c8a2d
+pmt_01a0744a-17ed-708c-b1a7-e5d676c54d3c
+user_account_01a0744a-17ed-708c-b1a7-e9b55fc126b5
 ```
 
 Records minted before this scheme are permanent and keep the form they were written with — the legacy `<Type>#<ksuid>` form, or a separator-less category with a 27-character KSUID body such as `ps` and `pps`. Both still parse, and neither is a violation in existing code. This rule governs the IDs a **new** node type mints; do not flag an existing type for the form its stored IDs already carry.
 
 ### Global ID Generation
 
-**GQL-015** — A new node type must mint its IDs with `generateGlobalId(category)` from `lib/graph/common`, never with `legacyGenerateGlobalId`, which is deprecated. The deprecated helper produces the legacy `<Type>#<category><ksuid>` form: it embeds the entity name in the ID, which leaks the type to every client and welds the public ID to the storage partition key, and its KSUID body carries only second resolution. `generateGlobalId` produces the **GQL-014** form — the category followed by a hex UUIDv7, which sorts chronologically as a string and carries a millisecond timestamp.
+**GQL-015** — A new node type must mint its IDs with `generateGlobalId(category)` from `lib/graph/common`, never with `legacyGenerateGlobalId`, which is deprecated. The deprecated helper produces the legacy `<Type>#<category><ksuid>` form: it embeds the entity name in the ID, which leaks the type to every client and welds the public ID to the storage partition key, and its KSUID body carries only second resolution. `generateGlobalId` produces the **GQL-014** form — the category, the separator, then a UUIDv7, which sorts chronologically as a string and carries a millisecond timestamp.
 
 Do not hand-assemble an ID by concatenating a prefix onto a generator call. Doing so skips the category validation and drifts from the scheme the parser expects.
 
@@ -435,7 +439,7 @@ Do not hand-assemble an ID by concatenating a prefix onto a generator call. Doin
 const id = await legacyGenerateGlobalId('PaymentMethod', 'pmd');
 
 // wrong — hand-assembled, category never validated
-const id = `pmd_${uuidv7().replaceAll('-', '')}`;
+const id = `pmd_${uuidv7()}`;
 
 // right — the separator is appended for you
 const id = generateGlobalId('pmd');
