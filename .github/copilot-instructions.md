@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.08.01.1250
+  version: 2026.09.05.2022
 ---
 
 # Copilot Instructions
@@ -408,17 +408,38 @@ Reusing the catalog `valibot` and the shared `@nr1e/commons/valibot` helpers kee
 
 ### Global ID Format
 
-**GQL-014** — Relay global IDs (the `id: ID!` required by **GQL-011**) must be formatted as `<category><ksuid>`, where `<category>` matches `[a-z]{2,3}_?` — a short two- or three-letter code identifying the node type, optionally followed by a single underscore — and `<ksuid>` is the record's KSUID. Clients must treat the global ID as an opaque value; the category prefix is for server-side type routing only. Prefixing the KSUID with the category makes each ID self-describing to the server and globally unique across types. Each node type must use a distinct category, and a type's category must never change once assigned.
+**GQL-014** — Relay global IDs (the `id: ID!` required by **GQL-011**) must be formatted as `<category><ksuidv7>`, where `<category>` matches `[a-z_]+` — lowercase letters and underscores identifying the node type — and `<ksuidv7>` is a base62-encoded UUIDv7. Clients must treat the global ID as an opaque value; the category prefix is for server-side type routing only. Prefixing the body with the category makes each ID self-describing to the server and globally unique across types. Each node type must use a distinct category, and a type's category must never change once assigned.
 
-The trailing underscore is optional and exists for legibility: a bare concatenation leaves no visible boundary between the code and the KSUID (`ctc2Nc8xVQ1rL9mKZ4tYbWpEjHq`). No other separator character is permitted, and the code itself remains letters only. The underscore is **part of the category**, so `ctc` and `ctc_` are different categories and are not interchangeable — a type that ships one must not later switch to the other.
+The character sets are what make the two halves separable, so neither may be widened. The body is base62, so a digit or a capital letter can never be part of a category; and because a base62 UUIDv7 is always 22 characters, a parser recovers the category by splitting from the **right**. Splitting from the left instead — matching `[a-z_]+` greedily — is wrong, because a body may itself begin with lowercase letters and would be partly swallowed into the category. An underscore may appear anywhere in the category and is **part of it**, so `ctc` and `ctc_` are different categories and are not interchangeable — a type that ships one must not later switch to the other.
 
-Example — a `Payment` node (category `pmt`) and a `PaymentPlan` node (category `ppl`) without the separator, and a `Contact` node (category `ctc_`) with it:
+Example — a `Payment` node (category `pmt`), a `PaymentPlan` node (category `ppl`), and a `PaymentMethod` node using a longer underscored category:
 
 ```
-pmt2Nc8xVQ1rL9mKZ4tYbWpEjHq
-ppl2Nc8xVQ1rL9mKZ4tYbWpEjHq
-ctc_2Nc8xVQ1rL9mKZ4tYbWpEjHq
+pmt034JpEKDhRBZRe5E4jc6lf
+ppl034JpEKDnUoXyTbZ5BZtNS
+payment_method034JpEKDnUoXyTcZoBDJzr
 ```
+
+Records minted before this scheme are permanent and keep the form they were written with — the legacy `<Type>#<ksuid>` form, or a category with a 27-character KSUID body. Both still parse, and neither is a violation in existing code. This rule governs the IDs a **new** node type mints; do not flag an existing type for the form its stored IDs already carry.
+
+### Global ID Generation
+
+**GQL-015** — A new node type must mint its IDs with `generateGlobalId(category)` from `lib/graph/common`, never with `legacyGenerateGlobalId`, which is deprecated. The deprecated helper produces the legacy `<Type>#<category><ksuid>` form: it embeds the entity name in the ID, which leaks the type to every client and welds the public ID to the storage partition key, and its KSUID body carries only second resolution. `generateGlobalId` produces the **GQL-014** form — the category followed by a base62 UUIDv7, which sorts chronologically as a string and carries a millisecond timestamp.
+
+Do not hand-assemble an ID by concatenating a prefix onto a generator call. Doing so skips the category validation and drifts from the scheme the parser expects.
+
+```ts
+// wrong — deprecated helper, legacy form
+const id = await legacyGenerateGlobalId('PaymentMethod', 'pmd');
+
+// wrong — hand-assembled, category never validated
+const id = `pmd${uuidv7b62()}`;
+
+// right
+const id = generateGlobalId('pmd');
+```
+
+Existing types that still call `legacyGenerateGlobalId` are **not** a violation — their stored IDs are permanent, so the call site is load-bearing. Flag it only when a diff introduces a new node type, or switches an existing type's generator.
 
 ---
 
