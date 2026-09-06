@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.05.2049
+  version: 2026.09.05.2058
 ---
 
 # Copilot Instructions
@@ -408,19 +408,21 @@ Reusing the catalog `valibot` and the shared `@nr1e/commons/valibot` helpers kee
 
 ### Global ID Format
 
-**GQL-014** — Relay global IDs (the `id: ID!` required by **GQL-011**) must be formatted as `<category><uuidv7>`, where `<category>` matches `[a-z_]+` — lowercase letters and underscores identifying the node type — and `<uuidv7>` is a raw UUIDv7 in hex: 32 lowercase hex characters with the dashes removed. Nothing is re-encoded; the UUID is stored in its own hex form. Clients must treat the global ID as an opaque value; the category prefix is for server-side type routing only. Prefixing the body with the category makes each ID self-describing to the server and globally unique across types. Each node type must use a distinct category, and a type's category must never change once assigned.
+**GQL-014** — Relay global IDs (the `id: ID!` required by **GQL-011**) must be formatted as `<category>_<uuidv7>`, where `<category>` matches `[a-z_]+`, an underscore separates it from the body, and `<uuidv7>` is a raw UUIDv7 in hex: 32 lowercase hex characters with the dashes removed. Nothing is re-encoded; the UUID is stored in its own hex form. Clients must treat the global ID as an opaque value; the category prefix is for server-side type routing only. Prefixing the body with the category makes each ID self-describing to the server and globally unique across types. Each node type must use a distinct category, and a type's category must never change once assigned.
 
-The two halves overlap by design, so an ID must be split on the **fixed 32-character width, from the right**. A category is `[a-z_]+` and a hex body is `[0-9a-f]+`, which means `a` through `f` are legal in both: matching the category greedily from the left runs past the boundary and eats the leading hex characters of the body. Flag any parser that splits an ID on a character-class match rather than on the body width. An underscore may appear anywhere in the category and is **part of it**, so `ctc` and `ctc_` are different categories and are not interchangeable — a type that ships one must not later switch to the other.
+The separator is **appended by the generator, not by the caller** — `generateGlobalId('pmt')` and `generateGlobalId('pmt_')` both mint `pmt_…`, and neither produces `pmt__`. Do not concatenate an underscore at a call site to "help"; a category is written the same way everywhere and the generator normalizes it.
 
-Example — a `Payment` node (category `pmt`), a `PaymentPlan` node (category `ppl`), and a `PaymentMethod` node using a longer underscored category:
+The separator exists because the two halves overlap: a category is `[a-z_]+` and a hex body is `[0-9a-f]+`, so `a` through `f` are legal in both, and there is otherwise no character that marks the boundary. Hex never contains an underscore, so the **last** underscore in an ID is always the end of the category. An ID must therefore be split on that separator, or equivalently on the fixed 32-character body width from the right — never by matching the category greedily from the left, which runs past the boundary and eats the leading hex characters of the body. Flag any parser that does the latter.
+
+Example — a `Payment` node (category `pmt`), a `PaymentPlan` node (category `ppl`), and a `PaymentMethod` node with a multi-word category:
 
 ```
-pmt01a074280ffb735cae2a51688d206f3c
-ppl01a074280ffc7108ac814cdce503d587
-payment_method01a074280ffc7108ac81528157e8dbd0
+pmt_01a07442f822755c82809b7935ae416e
+ppl_01a07442f824736eab1b85d804a2078b
+payment_method_01a07442f824736eab1b89d8564f8982
 ```
 
-Records minted before this scheme are permanent and keep the form they were written with — the legacy `<Type>#<ksuid>` form, or a category with a 27-character KSUID body. Both still parse, and neither is a violation in existing code. This rule governs the IDs a **new** node type mints; do not flag an existing type for the form its stored IDs already carry.
+Records minted before this scheme are permanent and keep the form they were written with — the legacy `<Type>#<ksuid>` form, or a separator-less category with a 27-character KSUID body such as `ps` and `pps`. Both still parse, and neither is a violation in existing code. This rule governs the IDs a **new** node type mints; do not flag an existing type for the form its stored IDs already carry.
 
 ### Global ID Generation
 
@@ -433,9 +435,9 @@ Do not hand-assemble an ID by concatenating a prefix onto a generator call. Doin
 const id = await legacyGenerateGlobalId('PaymentMethod', 'pmd');
 
 // wrong — hand-assembled, category never validated
-const id = `pmd${uuidv7().replaceAll('-', '')}`;
+const id = `pmd_${uuidv7().replaceAll('-', '')}`;
 
-// right
+// right — the separator is appended for you
 const id = generateGlobalId('pmd');
 ```
 
