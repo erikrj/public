@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.06.2057
+  version: 2026.09.06.2058
 ---
 
 # Copilot Instructions
@@ -430,7 +430,7 @@ user_account_01a0744a-17ed-708c-b1a7-e9b55fc126b5
 
 The default is a recommendation, not the only permitted shape — but every deviation must be deliberate, because a parser has to name the body from its shape alone.
 
-- **Body.** A UUIDv4 (no time ordering), a KSUID (second resolution), or a SHA-256 digest in lowercase hex are also recognized. A digest is what a type derives its ID from when the ID is also an idempotency key — ClientLoop's `ClpEvent` hashes the webhook payload so a replay produces the same ID and the conditional put rejects it. Each of these has a fixed width — 36 or 32 for a UUID, 64 for a digest, 27 for a KSUID — which is what keeps them distinguishable; a body of any other shape cannot be named and must not be used as a node ID.
+- **Body.** A UUIDv4 (no time ordering) in the same canonical dashed form, a KSUID (second resolution), or a SHA-256 digest in lowercase hex are also recognized. A digest is what a type derives its ID from when the ID is also an idempotency key — ClientLoop's `ClpEvent` hashes the webhook payload so a replay produces the same ID and the conditional put rejects it. Each of these has a fixed width — 36 for a UUID, 64 for a digest, 27 for a KSUID — which is what keeps them distinguishable; a body of any other shape cannot be named and must not be used as a node ID. An undashed 32-character UUID is **not** permitted: it re-encodes the value the default rule stores as generated, and its width and alphabet are those of an MD5 digest, so it marks no distinguishable shape.
 - **Delimiter.** Any punctuation may separate the halves, but it must contain **no letters or numbers**: a category is letters and underscores and every body is alphanumeric, so a delimiter built from those marks no boundary. A non-default delimiter also has to be named to the parser, since nothing in an ID says which character divided it — and `#` additionally collides with the legacy `<Type>#<id>` form, so an ID using it reads as that form unless the parser is told otherwise.
 - **Mixed case.** A category may carry capitals only where a caller has opted in on both sides, minting and parsing. Prefer lowercase; the exception exists for IDs that must match an external system's casing.
 
