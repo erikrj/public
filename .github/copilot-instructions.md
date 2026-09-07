@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.06.2044
+  version: 2026.09.06.2058
 ---
 
 # Copilot Instructions
@@ -408,13 +408,13 @@ Reusing the catalog `valibot` and the shared `@nr1e/commons/valibot` helpers kee
 
 ### Global ID Format
 
-**GQL-014** — Relay global IDs (the `id: ID!` required by **GQL-011**) must be formatted as `<category>_<uuidv7>`, where `<category>` matches `[a-z_]+`, an underscore separates it from the body, and `<uuidv7>` is a UUIDv7 in its canonical dashed form. Nothing is re-encoded; the UUID is stored exactly as generated. Clients must treat the global ID as an opaque value; the category prefix is for server-side type routing only. Prefixing the body with the category makes each ID self-describing to the server and globally unique across types. Each node type must use a distinct category, and a type's category must never change once assigned.
+**GQL-014** — Relay global IDs (the `id: ID!` required by **GQL-011**) must be formatted as `<category><delimiter><id>`. The default, and what a new node type should use unless it has a reason not to, is **`<category>_<uuidv7>`**: a category matching `[a-z_]+`, an underscore, and a UUIDv7 in its canonical dashed form. Nothing is re-encoded; the UUID is stored exactly as generated. Clients must treat the global ID as an opaque value; the category prefix is for server-side type routing only. Each node type must use a distinct category, and a type's category must never change once assigned.
 
-The separator is **appended by the generator, not written by the caller** — `generateGlobalId('note')` and `generateGlobalId('note_')` both mint `note_…`, and neither produces `note__`. Do not concatenate an underscore at a call site to "help".
+The separator is **appended by the generator, not written by the caller** — `generateGlobalId('note')` and `generateGlobalId('note_')` both mint `note_…`, and neither produces `note__`. Do not concatenate one at a call site to "help".
 
 The separator is **not part of the category**. It divides the ID; it does not belong to either half. Parsing `note_01a07447-9f40-7747-a085-4640a7b20d7c` yields the category `note`, not `note_`. Flag any code that stores, registers, or compares a category with a trailing underscore.
 
-An ID must be split at its **last** underscore. A category may contain underscores of its own — `user_account` is a single category — while a UUID contains none, so the last underscore is always the boundary and every earlier one belongs to the category. Splitting at the first underscore truncates every multi-word category (`user_account_…` would parse as `user`), and matching the category by character class from the left is worse still: a category is `[a-z_]+` and a UUID's hex is `[0-9a-f]`, so `a` through `f` are legal in both and the match runs into the body. Flag either.
+An ID must be split at its **last** underscore when the delimiter is `_`. A category may contain underscores of its own — `user_account` is a single category — while a UUID contains none, so the last underscore is the boundary and every earlier one belongs to the category. Splitting at the first truncates every multi-word category (`user_account_…` would parse as `user`), and matching the category by character class from the left is worse still: a category is `[a-z_]+` and a UUID's hex is `[0-9a-f]`, so `a` through `f` are legal in both and the match runs into the body. Flag either. For any other delimiter the category cannot contain it, so the **first** occurrence is the boundary.
 
 A category must be lowercase. `Note`, `User_account` and `UserAccount` are all invalid and must be rejected with an error rather than lowercased or otherwise normalized — a category is a constant chosen once per node type, so a bad one is a bootstrap bug, not input to clean up.
 
@@ -425,6 +425,14 @@ note_01a0744a-17ed-708c-b1a7-e33d373c8a2d
 pmt_01a0744a-17ed-708c-b1a7-e5d676c54d3c
 user_account_01a0744a-17ed-708c-b1a7-e9b55fc126b5
 ```
+
+#### Deviating from the default
+
+The default is a recommendation, not the only permitted shape — but every deviation must be deliberate, because a parser has to name the body from its shape alone.
+
+- **Body.** A UUIDv4 (no time ordering) in the same canonical dashed form, a KSUID (second resolution), or a SHA-256 digest in lowercase hex are also recognized. A digest is what a type derives its ID from when the ID is also an idempotency key — ClientLoop's `ClpEvent` hashes the webhook payload so a replay produces the same ID and the conditional put rejects it. Each of these has a fixed width — 36 for a UUID, 64 for a digest, 27 for a KSUID — which is what keeps them distinguishable; a body of any other shape cannot be named and must not be used as a node ID. An undashed 32-character UUID is **not** permitted: it re-encodes the value the default rule stores as generated, and its width and alphabet are those of an MD5 digest, so it marks no distinguishable shape.
+- **Delimiter.** Any punctuation may separate the halves, but it must contain **no letters or numbers**: a category is letters and underscores and every body is alphanumeric, so a delimiter built from those marks no boundary. A non-default delimiter also has to be named to the parser, since nothing in an ID says which character divided it — and `#` additionally collides with the legacy `<Type>#<id>` form, so an ID using it reads as that form unless the parser is told otherwise.
+- **Mixed case.** A category may carry capitals only where a caller has opted in on both sides, minting and parsing. Prefer lowercase; the exception exists for IDs that must match an external system's casing.
 
 Records minted before this scheme are permanent and keep the form they were written with — the legacy `<Type>#<ksuid>` form, or a separator-less category with a 27-character KSUID body such as `ps` and `pps`. Both still parse, and neither is a violation in existing code. This rule governs the IDs a **new** node type mints; do not flag an existing type for the form its stored IDs already carry.
 
