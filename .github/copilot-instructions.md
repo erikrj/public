@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.05.2131
+  version: 2026.09.06.2044
 ---
 
 # Copilot Instructions
@@ -529,6 +529,27 @@ over:
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 ```
+
+### Resource Retention on Construct Replacement
+
+**CDK-007** — When a change replaces one stateful construct (a table, bucket, or similar) with another, the resulting `removalPolicy` and `deletionProtection` must be compared against the construct being replaced. Wrapper constructs carry their own defaults — `truemark-cdk-lib`'s `StandardTableV2`, and the shared constructs built on it, default to `RemovalPolicy.RETAIN` with deletion protection **on** — so replacing code that set a policy literally with code that forwards an optional prop silently adopts the wrapper's default wherever no caller supplies one.
+
+Flag a diff where the old code sets the policy literally and the new code forwards `props.removalPolicy` (or omits it) with no `??` fallback. Check it mechanically: find the construct's instantiation sites, and if no stage or parent stack passes `removalPolicy`, the value is always `undefined` and the wrapper's default is what ships — in every environment, not just production. A pass-through that is correct in one stack is not automatically correct in another; it works only where some caller actually sets the prop.
+
+```ts
+// wrong — the enclosing stage never passes removalPolicy, so RETAIN and
+// deletion protection apply everywhere, unlike the table this replaced
+const table = new SessionTable(this, 'Session', {
+  removalPolicy: props.removalPolicy,
+});
+
+// right — prior behavior is preserved when no caller sets the prop
+const table = new SessionTable(this, 'Session', {
+  removalPolicy: props.removalPolicy ?? RemovalPolicy.DESTROY,
+});
+```
+
+This applies with particular force when the replacement also fixes the physical name (`tableName`, `bucketName`): a retained resource keeps that name, so destroying and recreating the stack then fails on a name collision.
 
 ---
 
