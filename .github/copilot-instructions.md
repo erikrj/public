@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.06.2058
+  version: 2026.09.09.2052
 ---
 
 # Copilot Instructions
@@ -389,7 +389,7 @@ Reference these Relay docs when reviewing or generating GraphQL schema changes:
 
 **GQL-010** — Relay connection fields must accept Relay pagination arguments: `first` and `after` for forward pagination, and `last` and `before` for backward pagination.
 
-**GQL-011** — Types intended for Relay-style refetching must implement the `Node` interface and expose a globally unique `id: ID!`. Schemas that add Relay node types should also provide the root `node(id: ID!)` field required for refetching.
+**GQL-011** — Relay-style refetching — the `Node` interface and the root `node(id: ID!)` field — is **optional**, decided per application. A type that opts in must expose an `id: ID!` from which the `node` resolver can recover the type; how it does so (a type prefix, a registry of id prefixes) is the application's design, not this rule's. A type that does not opt in must not implement `Node`, and fetches one record through a typed root field instead (`note(id: ID!)`, `contact(id: ID!)`); its `id` need only be unique within its own type. Do not flag a type for lacking `Node` or a schema for lacking `node(id:)`.
 
 ### Public API Compatibility
 
@@ -406,54 +406,32 @@ Which client a schema belongs in follows where the graph component itself lives:
 
 Reusing the catalog `valibot` and the shared `@nr1e/commons/valibot` helpers keeps the schemas consistent across packages.
 
-### Global ID Format
+### ID Generation
 
-**GQL-014** — Relay global IDs (the `id: ID!` required by **GQL-011**) must be formatted as `<category><delimiter><id>`. The default, and what a new node type should use unless it has a reason not to, is **`<category>_<uuidv7>`**: a category matching `[a-z_]+`, an underscore, and a UUIDv7 in its canonical dashed form. Nothing is re-encoded; the UUID is stored exactly as generated. Clients must treat the global ID as an opaque value; the category prefix is for server-side type routing only. Each node type must use a distinct category, and a type's category must never change once assigned.
+**GQL-014** — An `id` is an opaque string the server mints with a shared id generator. It carries no type segment, category or other prefix: the default id, and what a new type uses unless it has a reason not to, is a bare **KSUID** (27 base62 characters). A **UUIDv7** is permitted where an entity needs millisecond time ordering on the id itself, and a **UUIDv4** where an id must match or be shared with an external system that uses one; either choice must be deliberate, and its reason recorded in a comment where the id is minted (**GEN-014**). Sequential or otherwise enumerable ids must not be used.
 
-The separator is **appended by the generator, not written by the caller** — `generateGlobalId('note')` and `generateGlobalId('note_')` both mint `note_…`, and neither produces `note__`. Do not concatenate one at a call site to "help".
+Clients must treat an `id` as opaque. Do not document its layout in the schema — a described format is one clients will parse — and do not derive anything from it server-side that a stored field could carry instead: ordering comes from an explicit timestamp attribute (a KSUID resolves only to the second), and the type of a record from where it was fetched, not from its id.
 
-The separator is **not part of the category**. It divides the ID; it does not belong to either half. Parsing `note_01a07447-9f40-7747-a085-4640a7b20d7c` yields the category `note`, not `note_`. Flag any code that stores, registers, or compares a category with a trailing underscore.
+A storage layer may prefix keys with the entity type for single-table design (`Pk = Note#<id>`), but that prefix belongs to the key, not the id: the stored record and the API carry the bare id, and the prefix is applied when a key is built and never parsed back out of one. Flag an id that is stored or served with a storage prefix attached.
 
-An ID must be split at its **last** underscore when the delimiter is `_`. A category may contain underscores of its own — `user_account` is a single category — while a UUID contains none, so the last underscore is the boundary and every earlier one belongs to the category. Splitting at the first truncates every multi-word category (`user_account_…` would parse as `user`), and matching the category by character class from the left is worse still: a category is `[a-z_]+` and a UUID's hex is `[0-9a-f]`, so `a` through `f` are legal in both and the match runs into the body. Flag either. For any other delimiter the category cannot contain it, so the **first** occurrence is the boundary.
+Records minted under an earlier scheme — a type-prefixed `<Type>#<id>`, for example — keep the form they were written with, because stored ids are permanent. An existing type continuing to mint in its established form is not a violation, and the generator call that does so is load-bearing. This rule governs the ids a **new** type mints; flag an established form only when a diff introduces a new type through it.
 
-A category must be lowercase. `Note`, `User_account` and `UserAccount` are all invalid and must be rejected with an error rather than lowercased or otherwise normalized — a category is a constant chosen once per node type, so a bad one is a bootstrap bug, not input to clean up.
+Example — a note, its storage key, and how a caller that needs another scheme opts in:
 
-Example — a `Note` node (category `note`), a `Payment` node (category `pmt`), and a `UserAccount` node with a multi-word category:
+```ts
+// default — the id is a bare KSUID
+const id = await ksuid();                   // '3C7tjIhKSFkG0v8CDCaGUq8Wpgs'
+const pk = `Note#${id}`;                    // storage key; never served
 
+// deliberate deviation, reason recorded
+// Audit events are ordered by id in the export feed, which needs millisecond
+// resolution a KSUID does not carry.
+const id = uuidv7();
 ```
-note_01a0744a-17ed-708c-b1a7-e33d373c8a2d
-pmt_01a0744a-17ed-708c-b1a7-e5d676c54d3c
-user_account_01a0744a-17ed-708c-b1a7-e9b55fc126b5
-```
-
-#### Deviating from the default
-
-The default is a recommendation, not the only permitted shape — but every deviation must be deliberate, because a parser has to name the body from its shape alone.
-
-- **Body.** A UUIDv4 (no time ordering) in the same canonical dashed form, a KSUID (second resolution), or a SHA-256 digest in lowercase hex are also recognized. A digest is what a type derives its ID from when the ID is also an idempotency key — ClientLoop's `ClpEvent` hashes the webhook payload so a replay produces the same ID and the conditional put rejects it. Each of these has a fixed width — 36 for a UUID, 64 for a digest, 27 for a KSUID — which is what keeps them distinguishable; a body of any other shape cannot be named and must not be used as a node ID. An undashed 32-character UUID is **not** permitted: it re-encodes the value the default rule stores as generated, and its width and alphabet are those of an MD5 digest, so it marks no distinguishable shape.
-- **Delimiter.** Any punctuation may separate the halves, but it must contain **no letters or numbers**: a category is letters and underscores and every body is alphanumeric, so a delimiter built from those marks no boundary. A non-default delimiter also has to be named to the parser, since nothing in an ID says which character divided it — and `#` additionally collides with the legacy `<Type>#<id>` form, so an ID using it reads as that form unless the parser is told otherwise.
-- **Mixed case.** A category may carry capitals only where a caller has opted in on both sides, minting and parsing. Prefer lowercase; the exception exists for IDs that must match an external system's casing.
-
-Records minted before this scheme are permanent and keep the form they were written with — the legacy `<Type>#<ksuid>` form, or a separator-less category with a 27-character KSUID body such as `ps` and `pps`. Both still parse, and neither is a violation in existing code. This rule governs the IDs a **new** node type mints; do not flag an existing type for the form its stored IDs already carry.
 
 ### Global ID Generation
 
-**GQL-015** — A new node type must mint its IDs with `generateGlobalId(category)` from `lib/graph/common`, never with `legacyGenerateGlobalId`, which is deprecated. The deprecated helper produces the legacy `<Type>#<category><ksuid>` form: it embeds the entity name in the ID, which leaks the type to every client and welds the public ID to the storage partition key, and its KSUID body carries only second resolution. `generateGlobalId` produces the **GQL-014** form — the category, the separator, then a UUIDv7, which sorts chronologically as a string and carries a millisecond timestamp.
-
-Do not hand-assemble an ID by concatenating a prefix onto a generator call. Doing so skips the category validation and drifts from the scheme the parser expects.
-
-```ts
-// wrong — deprecated helper, legacy form
-const id = await legacyGenerateGlobalId('PaymentMethod', 'pmd');
-
-// wrong — hand-assembled, category never validated
-const id = `pmd_${uuidv7()}`;
-
-// right — the separator is appended for you
-const id = generateGlobalId('pmd');
-```
-
-Existing types that still call `legacyGenerateGlobalId` are **not** a violation — their stored IDs are permanent, so the call site is load-bearing. Flag it only when a diff introduces a new node type, or switches an existing type's generator.
+**GQL-015** — _Retired._ Global ids are no longer required; **GQL-014** governs id generation. Nothing to flag under this code.
 
 ---
 
