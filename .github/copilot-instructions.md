@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.09.2052
+  version: 2026.09.09.2126
 ---
 
 # Copilot Instructions
@@ -389,7 +389,7 @@ Reference these Relay docs when reviewing or generating GraphQL schema changes:
 
 **GQL-010** — Relay connection fields must accept Relay pagination arguments: `first` and `after` for forward pagination, and `last` and `before` for backward pagination.
 
-**GQL-011** — Relay-style refetching — the `Node` interface and the root `node(id: ID!)` field — is **optional**, decided per application. A type that opts in must expose an `id: ID!` from which the `node` resolver can recover the type; how it does so (a type prefix, a registry of id prefixes) is the application's design, not this rule's. A type that does not opt in must not implement `Node`, and fetches one record through a typed root field instead (`note(id: ID!)`, `contact(id: ID!)`); its `id` need only be unique within its own type. Do not flag a type for lacking `Node` or a schema for lacking `node(id:)`.
+**GQL-011** — Relay-style refetching — the `Node` interface and the root `node(id: ID!)` field — is **optional**, decided per application. A type that opts in must expose an `id: ID!` from which the `node` resolver can recover the type. Because **GQL-014** forbids a type segment in the id itself, that recovery is server-side — a registry keyed by the opaque id, or a lookup across the types that opted in — and never a prefix parsed back out of the id. Which of those an application uses is its own design, not this rule's. A type that does not opt in must not implement `Node`, and fetches one record through a typed root field instead (`note(id: ID!)`, `contact(id: ID!)`); its `id` need only be unique within its own type. Do not flag a type for lacking `Node` or a schema for lacking `node(id:)`.
 
 ### Public API Compatibility
 
@@ -408,9 +408,11 @@ Reusing the catalog `valibot` and the shared `@nr1e/commons/valibot` helpers kee
 
 ### ID Generation
 
-**GQL-014** — An `id` is an opaque string the server mints with a shared id generator. It carries no type segment, category or other prefix: the default id, and what a new type uses unless it has a reason not to, is a bare **KSUID** (27 base62 characters). A **UUIDv7** is permitted where an entity needs millisecond time ordering on the id itself, and a **UUIDv4** where an id must match or be shared with an external system that uses one; either choice must be deliberate, and its reason recorded in a comment where the id is minted (**GEN-014**). Sequential or otherwise enumerable ids must not be used.
+**GQL-014** — An `id` is an opaque string the server mints with a shared id generator. It carries no type segment, category or other prefix: the default id, and what a new type uses unless it has a reason not to, is a bare **KSUID** (27 base62 characters). A **UUIDv7** is permitted where an entity needs finer time ordering than a KSUID's one-second resolution, and a **UUIDv4** where an id must match or be shared with an external system that uses one; either choice must be deliberate, and its reason recorded in a comment where the id is minted (**GEN-014**). Sequential or otherwise enumerable ids must not be used.
 
-Clients must treat an `id` as opaque. Do not document its layout in the schema — a described format is one clients will parse — and do not derive anything from it server-side that a stored field could carry instead: ordering comes from an explicit timestamp attribute (a KSUID resolves only to the second), and the type of a record from where it was fetched, not from its id.
+Clients must treat an `id` as opaque. Do not document its layout in the schema — a described format is one clients will parse — and do not derive anything from it server-side that a stored field could carry instead: the type of a record comes from where it was fetched, not from its id.
+
+Ordering is the one thing an id may legitimately carry. Both default bodies sort chronologically as strings — a KSUID to the second, a UUIDv7 to the millisecond — so either may be ordered on. Prefer an explicit timestamp attribute where the record can carry one: it survives a change of id scheme, it is visible to clients, and it can express a time the id does not (when an event occurred, rather than when its row was minted). Order on the id where no such field exists, or where the id is the tiebreaker within one timestamp. A UUIDv4 carries no time and must never be ordered on.
 
 A storage layer may prefix keys with the entity type for single-table design (`Pk = Note#<id>`), but that prefix belongs to the key, not the id: the stored record and the API carry the bare id, and the prefix is applied when a key is built and never parsed back out of one. Flag an id that is stored or served with a storage prefix attached.
 
