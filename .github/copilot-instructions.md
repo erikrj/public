@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.13.0811
+  version: 2026.09.13.0840
 ---
 
 # Copilot Instructions
@@ -614,14 +614,28 @@ exclusiveStartKey: cursor ? decodeCursor(cursor, field, partition) : undefined,
 
 ### Key Ordering
 
-**DDB-004** — Code and tests that reproduce DynamoDB's sort-key order must compare strings bytewise (`<` / `>`, or a code-unit comparison), never with `localeCompare` or a locale-aware collator. DynamoDB orders string keys by their UTF-8 bytes, so uppercase sorts before lowercase and digits before letters; a locale collation orders case-insensitively and can interleave them, so an expectation built with `localeCompare` disagrees with the index exactly when two keys share a prefix and differ in case — a KSUID, a base62 id, or a mixed-case name. The failure is intermittent, which is why it survives into CI.
+**DDB-004** — Code and tests that reproduce DynamoDB's sort-key order must compare strings by their UTF-8 bytes, never with `localeCompare` or a locale-aware collator. DynamoDB orders string keys by their UTF-8 bytes, so uppercase sorts before lowercase and digits before letters; a locale collation orders case-insensitively and can interleave them, so an expectation built with `localeCompare` disagrees with the index exactly when two keys share a prefix and differ in case — a KSUID, a base62 id, or a mixed-case name. The failure is intermittent, which is why it survives into CI.
+
+JavaScript's `<` and `>` compare UTF-16 code units, which agrees with UTF-8 byte order only while every key stays inside the BMP. Above it the two disagree: `'\u{10000}' < '\uE000'` is `true`, but U+10000 encodes as `f0 90 80 80` against U+E000's `ee 80 80`, so the index returns the opposite order. Keys drawn from an ASCII alphabet — a KSUID, a base62 id, a type prefix — are safe to compare with `<`; a key that can carry arbitrary text, such as a user-supplied name with an emoji in it, must be compared bytewise.
 
 ```ts
 // wrong — collation order, not key order
 records.sort((a, b) => a.sk.localeCompare(b.sk));
 
-// right — the order the index actually returns
+// right, for an ASCII-only key — code-unit order matches byte order
 records.sort((a, b) => (a.sk < b.sk ? -1 : a.sk > b.sk ? 1 : 0));
+
+// right for any key — the order the index actually returns
+const enc = new TextEncoder();
+const byUtf8 = (a: string, b: string) => {
+  const x = enc.encode(a);
+  const y = enc.encode(b);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    if (x[i] !== y[i]) return x[i] - y[i];
+  }
+  return x.length - y.length;
+};
+records.sort((a, b) => byUtf8(a.sk, b.sk));
 ```
 
 ### Composite Keys
@@ -662,7 +676,7 @@ endCursor:
   (lastEvaluatedKey ? encodeCursor(lastEvaluatedKey) : null),
 ```
 
-**DDB-008** — A caller-supplied value interpolated into a DynamoDB attribute path — a map key addressed as `tags['<id>']`, or any `attr` string built from input — must be validated to exclude the path form's delimiter (`'` for the bracket-quoted form) before it is interpolated, or the path must be built from parsed segments instead. The bracket-quoted form protects dots and brackets inside a key, but a quote inside the value ends the segment early: `tags['x'y']` addresses the key `y`, so a filter silently inspects the wrong attribute and the expression still executes. Flag a template literal that places an unvalidated input inside a quoted path segment; a schema that rejects the delimiter at the boundary satisfies this.
+**DDB-008** — A caller-supplied value interpolated into a **`dynamodb-toolbox` attribute path** — a map key addressed as `tags['<id>']`, or any `attr` string built from input — must be validated to exclude the path form's delimiter (`'` for the bracket-quoted form) before it is interpolated, or the path must be built from parsed segments instead. This is the library's path grammar, not DynamoDB's: raw expressions have no quoted-key form and reach a key with a special character through `ExpressionAttributeNames` (`#tags.#key`), which the library generates from the parsed path. The bracket-quoted form protects dots and brackets inside a key, but the parser takes the next `'` as the end of the segment, so an embedded quote silently shifts where the segment ends and the path addresses an attribute the caller never named. Flag a template literal that places an unvalidated input inside a quoted path segment; a schema that rejects the delimiter at the boundary satisfies this.
 
 ```ts
 // wrong — the id is only trimmed, so x'y reaches the path
@@ -676,7 +690,7 @@ export const tagIdSchema = v.pipe(
 );
 ```
 
-**DDB-009** — Every caller-supplied string that is written into a DynamoDB item must be bounded by the schema that admits it, so that an oversized value fails as the store's own validation error rather than as DynamoDB's `ValidationException`. DynamoDB enforces hard limits — 400 KiB per item, 2 KiB per partition key and 1 KiB per sort key, all counted in UTF-8 bytes — and an unbounded `v.string()` reaches them at write time, where the failure surfaces as an internal error with no field attached. Bound a body by its UTF-8 byte length, not its character count (a three-byte character counts three times), and bound a value that is joined into a key by what the key can hold once every component is at its maximum and encoded (**DDB-005** expands `#` to three bytes). Flag a string schema with no `maxLength` or byte check whose output is stored in an item or interpolated into a key.
+**DDB-009** — Every caller-supplied string that is written into a DynamoDB item must be bounded by the schema that admits it, so that an oversized value fails as the store's own validation error rather than as DynamoDB's `ValidationException`. DynamoDB enforces hard limits — 400 KiB per item, 2 KiB per partition key and 1 KiB per sort key, all counted in UTF-8 bytes — and an unbounded `v.string()` reaches them at write time, where the failure surfaces as an internal error with no field attached. Bound a body by its UTF-8 byte length, not its character count (a three-byte character counts three times), and bound a value that is joined into a key by what the key can hold once every component is at its maximum and encoded (**DDB-005** expands `#` to three bytes). Flag a string schema with no byte check whose output is stored in an item or interpolated into a key. A plain `maxLength` does not satisfy this on its own — `maxLength(2048)` still admits 2048 four-byte characters, which is 8 KiB — and counts only where the schema also restricts the value to a single-byte alphabet.
 
 ```ts
 // wrong — a 1 MiB body reaches DynamoDB and fails there
