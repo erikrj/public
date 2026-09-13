@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.09.2126
+  version: 2026.09.13.0840
 ---
 
 # Copilot Instructions
@@ -435,6 +435,22 @@ const id = uuidv7();
 
 **GQL-015** — _Retired._ Global ids are no longer required; **GQL-014** governs id generation. Nothing to flag under this code.
 
+### Pagination Argument Direction
+
+**GQL-016** — A connection resolver, or the store call beneath it, must reject a request that mixes forward and backward pagination arguments (`first`/`after` together with `last`/`before`) rather than pick one direction and silently ignore the rest. The Relay specification leaves mixed arguments to the server, and the common implementation — `const forward = last == null` — quietly drops `first` or `after` when `last` is present, so a client bug produces a plausible page instead of an error. Validate the pair in the schema that admits the arguments, and derive the direction from both backward arguments (`last == null && before == null`), so `before` alone pages backward instead of being ignored. Flag a direction selector that reads only one argument, and an input schema that admits all four without a cross-field check.
+
+```ts
+// wrong — `first: 10, last: 5` pages backward and never says so
+const forward = params.last == null;
+
+// right — a mix is a validation error; either backward argument selects backward
+v.check(
+  (p) => (p.first == null && p.after == null) || (p.last == null && p.before == null),
+  'first/after cannot be combined with last/before',
+);
+const forward = params.last == null && params.before == null;
+```
+
 ---
 
 ## AWS CDK
@@ -582,6 +598,115 @@ Reusing a shared non-consistent getter (`getThing`, `getWlgTransaction`) is the 
 
 
 **QWIK-001** — `routeLoader$()` must be declared in route boundary files (`layout.tsx`, `index.tsx`, or `plugin.tsx`) inside the `src/routes` directory. It must not be declared in component files outside of `src/routes`, nor in route files with any other name.
+
+### Pagination Cursors
+
+**DDB-003** — A pagination cursor decoded from a client must be checked against the partition being queried before it is passed as `ExclusiveStartKey`. A cursor is an opaque, signed-by-nobody copy of a DynamoDB key, so a well-formed cursor from a different partition (another owner's listing, or a stale cursor after the caller changed filters) reaches the query intact — and DynamoDB rejects a start key outside the queried partition with a `ValidationException`, which surfaces to the client as an internal error instead of a bad request. Decode, then compare the cursor's partition key (and index partition key, for a GSI query) to the values the query is about to use, and fail with the same client-safe validation error a malformed cursor gets.
+
+```ts
+// wrong — a cursor from another owner reaches DynamoDB and fails as a 500
+exclusiveStartKey: cursor ? decodeCursor(cursor, field) : undefined,
+
+// right — a cursor for a different partition is a bad request
+const partition = ownerPartition(ownerId);
+exclusiveStartKey: cursor ? decodeCursor(cursor, field, partition) : undefined,
+```
+
+### Key Ordering
+
+**DDB-004** — Code and tests that reproduce DynamoDB's sort-key order must compare strings by their UTF-8 bytes, never with `localeCompare` or a locale-aware collator. DynamoDB orders string keys by their UTF-8 bytes, so uppercase sorts before lowercase and digits before letters; a locale collation orders case-insensitively and can interleave them, so an expectation built with `localeCompare` disagrees with the index exactly when two keys share a prefix and differ in case — a KSUID, a base62 id, or a mixed-case name. The failure is intermittent, which is why it survives into CI.
+
+JavaScript's `<` and `>` compare UTF-16 code units, which agrees with UTF-8 byte order only while every key stays inside the BMP. Above it the two disagree: `'\u{10000}' < '\uE000'` is `true`, but U+10000 encodes as `f0 90 80 80` against U+E000's `ee 80 80`, so the index returns the opposite order. Keys drawn from an ASCII alphabet — a KSUID, a base62 id, a type prefix — are safe to compare with `<`; a key that can carry arbitrary text, such as a user-supplied name with an emoji in it, must be compared bytewise.
+
+```ts
+// wrong — collation order, not key order
+records.sort((a, b) => a.sk.localeCompare(b.sk));
+
+// right, for an ASCII-only key — code-unit order matches byte order
+records.sort((a, b) => (a.sk < b.sk ? -1 : a.sk > b.sk ? 1 : 0));
+
+// right for any key — the order the index actually returns
+const enc = new TextEncoder();
+const byUtf8 = (a: string, b: string) => {
+  const x = enc.encode(a);
+  const y = enc.encode(b);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    if (x[i] !== y[i]) return x[i] - y[i];
+  }
+  return x.length - y.length;
+};
+records.sort((a, b) => byUtf8(a.sk, b.sk));
+```
+
+### Composite Keys
+
+**DDB-005** — A key built by joining several values with a delimiter must encode that delimiter (and the escape character) inside each value before joining, or reject values that contain it. Otherwise the join is not injective — `('A#B', 'C')` and `('A', 'B#C')` both produce `A#B#C` — and two distinct records share a partition, so a listing returns one owner's items under another and a cursor for one resumes inside the other. The collision is invisible in tests, which never happen to pick colliding values, and only appears once a real id carries the delimiter — which type-prefixed ids such as `<Type>#<id>` always do. Percent-encoding is the usual choice: `%` → `%25`, then `#` → `%23`, applied per component. Flag a template literal that interpolates more than one caller-supplied value around a delimiter with no encoding or validation in between.
+
+```ts
+// wrong — a `#` in either value moves the boundary
+const pk = `Note#${parentType}#${parentId}`;
+
+// right — each component is recoverable, so the join is unambiguous
+const seg = (v: string) => v.replace(/%/g, '%25').replace(/#/g, '%23');
+const pk = `Note#${seg(parentType)}#${seg(parentId)}`;
+```
+
+### Replacing Collections in an Update
+
+**DDB-006** — In a `dynamodb-toolbox` `UpdateItemCommand`, a list or map attribute assigned a plain array or object is **patched**, not replaced: a list is updated index-wise (`['c']` over `['a', 'b']` leaves `['c', 'b']`) and a map key-wise (`{}` removes nothing). To replace the whole value, wrap it in `$set(...)` from `dynamodb-toolbox/entity/actions/update/symbols`. The bug is silent — the write succeeds and the read-back looks plausible — and the code usually reads as if it replaces, so flag any update item that assigns an array or object to a list, map, set or record attribute without `$set`, and check the intent: a partial patch is legitimate, but it should be visibly deliberate.
+
+```ts
+// wrong — an index-wise patch that keeps trailing elements
+.item({ pk, detail: { labelIds: parsed.labelIds } })
+
+// right — replaces the list
+.item({ pk, detail: { labelIds: $set(parsed.labelIds) } })
+```
+
+**DDB-007** — A paginated read that discards rows after reading them (a `FilterExpression`, or an application-side filter) and stops after a bounded number of pages must still hand back a position the caller can resume from when it returns **no items**. DynamoDB reports remaining data only through `LastEvaluatedKey`; if the only cursors a page exposes are those of the items in it, an empty page with `hasNextPage: true` leaves the caller nothing to continue from — it either stops early and reports the data absent, or re-issues the identical request until the cap is hit again. When the page is empty, encode the last evaluated key as the page's end cursor (a cursor need not point at a returned item, only at a valid position). Flag any page result that can report more data while every cursor it exposes is null.
+
+```ts
+// wrong — an empty capped page reports more data with no way to reach it
+endCursor: items.at(-1)?.cursor ?? null,
+hasNextPage: lastEvaluatedKey != null,
+
+// right — an empty page resumes from where the scan stopped
+endCursor:
+  items.at(-1)?.cursor ??
+  (lastEvaluatedKey ? encodeCursor(lastEvaluatedKey) : null),
+```
+
+**DDB-008** — A caller-supplied value interpolated into a **`dynamodb-toolbox` attribute path** — a map key addressed as `tags['<id>']`, or any `attr` string built from input — must be validated to exclude the path form's delimiter (`'` for the bracket-quoted form) before it is interpolated, or the path must be built from parsed segments instead. This is the library's path grammar, not DynamoDB's: raw expressions have no quoted-key form and reach a key with a special character through `ExpressionAttributeNames` (`#tags.#key`), which the library generates from the parsed path. The bracket-quoted form protects dots and brackets inside a key, but the parser takes the next `'` as the end of the segment, so an embedded quote silently shifts where the segment ends and the path addresses an attribute the caller never named. Flag a template literal that places an unvalidated input inside a quoted path segment; a schema that rejects the delimiter at the boundary satisfies this.
+
+```ts
+// wrong — the id is only trimmed, so x'y reaches the path
+const attr = `detail.tags['${tag.id}']`;
+
+// right — the schema the id passed through excludes the delimiter
+export const tagIdSchema = v.pipe(
+  v.string(),
+  v.trim(),
+  v.check((id) => !id.includes("'"), 'a tag id must not contain a single quote'),
+);
+```
+
+**DDB-009** — Every caller-supplied string that is written into a DynamoDB item must be bounded by the schema that admits it, so that an oversized value fails as the store's own validation error rather than as DynamoDB's `ValidationException`. DynamoDB enforces hard limits — 400 KiB per item, 2 KiB per partition key and 1 KiB per sort key, all counted in UTF-8 bytes — and an unbounded `v.string()` reaches them at write time, where the failure surfaces as an internal error with no field attached. Bound a body by its UTF-8 byte length, not its character count (a three-byte character counts three times), and bound a value that is joined into a key by what the key can hold once every component is at its maximum and encoded (**DDB-005** expands `#` to three bytes). Flag a string schema with no byte check whose output is stored in an item or interpolated into a key. A plain `maxLength` does not satisfy this on its own — `maxLength(2048)` still admits 2048 four-byte characters, which is 8 KiB — and counts only where the schema also restricts the value to a single-byte alphabet.
+
+```ts
+// wrong — a 1 MiB body reaches DynamoDB and fails there
+export const contentSchema = v.pipe(v.string(), v.nonEmpty());
+
+// right — the store rejects it with a field-level error first
+export const MAX_CONTENT_BYTES = 256 * 1024;
+export const contentSchema = v.pipe(
+  v.string(),
+  v.nonEmpty(),
+  v.check(
+    (value) => new TextEncoder().encode(value).length <= MAX_CONTENT_BYTES,
+    `content must be at most ${MAX_CONTENT_BYTES} bytes of UTF-8`,
+  ),
+);
+```
 
 ---
 
