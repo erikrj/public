@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.claude/skills/ERIKRJ_SKILLS_README.md
-  version: 2026.07.27.1744
+  version: 2026.09.19.0905
 ---
 
 # Agent skills
@@ -157,6 +157,7 @@ Two skills work together to surface and fix GitHub's security and quality alerts
 | `pr-create` | Pushes the current branch and opens a draft GitHub PR against `main`, with a succinct title and body written as the squash-merge commit. | No | Pushes + opens draft PR |
 | `codereview <path>` | Recursively reviews a single path against the rules in `CLAUDE.md` and `.github/copilot-instructions.md`, prints the violations it finds, and maintains the outstanding-violations backlog in `CODEREVIEW.md` (removing findings a rerun no longer finds). Reports only; does not edit reviewed code. | Writes `CODEREVIEW.md` | No |
 | `skills-update` | Refreshes every installed skill (and all its related files) **and** other tracked distributed files (e.g. `.github/copilot-instructions.md`) from the `metadata.source` GitHub URL declared in each file — a `/tree/` URL for a skill directory or a `/blob/` URL for a single file — overwriting local copies with the authoritative source. Reports updated/unchanged/stale per item; does not commit or push. | Writes skill + tracked files | Reads only |
+| `skills-check` | Reports how every installed skill **and** tracked file compares to its `metadata.source` — **current**, **outdated** (source moved on), **ahead** (unpublished local edits), **diverged** (same version, different content), plus missing/stale files — by fetching each source to a temp directory. Changes nothing: the read-only counterpart of `skills-update`, and the safe way to find out whether an update is needed. | No | Reads only |
 | `transcribe <file>` | Transcribes an audio/video file by running the `tools/transcribe` CLI (AWS Transcribe), writing the transcript next to the input. Prompts for the AWS profile when one is not provided/set, and checks it is authenticated before running. | Writes transcript files | Reads + writes AWS (S3 + Transcribe) |
 
 ## Permissions
