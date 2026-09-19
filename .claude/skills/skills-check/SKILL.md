@@ -5,7 +5,7 @@ allowed-tools: Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(grep:*), Bash(sed:*), B
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/skills-check
-  version: 2026.09.19.1211
+  version: 2026.09.19.1218
 ---
 
 Report how every installed skill — **and** the repository's other tracked
@@ -95,7 +95,13 @@ them all.
    or `blob`), then `REF`, then `PATH`. A `REF` containing slashes is ambiguous
    to parse — report **unsupported**.
 
-5. Fetch the source into the temp directory — never over the local copy:
+5. Fetch the source into the temp directory — never over the local copy.
+
+   **An item is a set of files, not a file.** A `blob` item happens to hold one;
+   a `tree` item holds every file in the skill directory. Build that set first —
+   for each member, the source `blob` path and its `rel` path within the item —
+   and also fix `ITEM_ROOT`, the local directory those `rel` paths hang off. The
+   two kinds differ only in how the set is built:
 
    - **`tree` (skill directory).** List the source blobs under `PATH`:
      ```sh
@@ -104,11 +110,21 @@ them all.
        | grep -E "^$(printf '%s' "$PATH" | sed 's/[.[\*^$/]/\\&/g')(/|$)"
      ```
      An empty list means the directory is absent at that ref — report
-     **source-missing**. Otherwise fetch each blob to `$TMP/<rel>`, where `rel`
-     is its path relative to `PATH`.
-   - **`blob` (tracked file).** Fetch the one file to `$TMP/<basename>`. A `404`
-     is **source-missing**.
+     **source-missing**. Otherwise each listed `blob` contributes
+     `rel=${blob#"$PATH"/}`, and `ITEM_ROOT="$skill_dir"`.
+   - **`blob` (tracked file).** The set has exactly one member, and **its
+     variables must be bound explicitly**:
+     ```sh
+     blob="$PATH"; rel="${PATH##*/}"; ITEM_ROOT="$(dirname "$REPO_ROOT/$PATH")"
+     ```
+     The fetch below reads `$blob` and `$rel` for every item of either kind. A
+     `blob` item that leaves them unset does not fail loudly — it re-uses
+     whatever the previous item's loop left in them, fetching the wrong source
+     to the wrong destination, so a tracked file such as
+     `.github/copilot-instructions.md` is silently compared against something
+     else. A `404` is **source-missing**.
 
+   Then fetch every member of the set:
    ```sh
    mkdir -p "$(dirname "$TMP/$rel")"
    gh api -H "Accept: application/vnd.github.raw" \
@@ -123,14 +139,25 @@ them all.
 6. Compare, and classify each item into exactly one status. Compare **content
    first**, then use the version only to explain a difference:
 
+   Compare **every member of the set** from step 5, not one representative file:
    ```sh
-   cmp -s "$local" "$fetched"    # exit 0 = byte-identical
+   differing=""
+   for rel in $rels; do
+     cmp -s "$ITEM_ROOT/$rel" "$TMP/$rel" || differing="$differing $rel"
+   done
    ```
+   `cmp` compares two *files*; it cannot walk a directory. Pointing it at a skill
+   directory is an error, and pointing it at that skill's `SKILL.md` alone is
+   worse — it succeeds, so a skill whose `SKILL.md` is untouched but whose
+   `references/foo.md` changed reports **current** with the file sets matching
+   and nothing to draw the eye.
 
-   - Byte-identical (and, for a skill, the file sets match) → **current**.
-   - Otherwise read `metadata.version` from both sides with the step-3 helper —
-     `meta "$local" version` and `meta "$fetched" version` — and compare them as
-     **strings**:
+   - `$differing` empty **and** the step-7 file sets match → **current**.
+   - Otherwise read `metadata.version` from both sides and compare them as
+     **strings**. The stamp lives in one designated file per item — the item's
+     own file for a `blob`, `SKILL.md` for a `tree` — so read it from there
+     (`meta "$ITEM_ROOT/$stamp_rel" version` against
+     `meta "$TMP/$stamp_rel" version`) no matter which member actually differed:
 
      | Comparison | Status | Means |
      |---|---|---|
@@ -153,9 +180,13 @@ them all.
    basis would discard them. So before reporting any item as **outdated**, check
    whether the local copy carries unpublished edits:
 
+   Scope both checks to `ITEM_ROOT` — the **whole skill directory** for a `tree`
+   item, the single file for a `blob`. Checking only the stamped file would miss
+   an edited `references/foo.md`, and the item would then be reported as a clean
+   **outdated** whose recommended update silently overwrites that edit:
    ```sh
-   git status --porcelain -- "$local"        # uncommitted local modifications
-   git log --oneline origin/main..HEAD -- "$local"   # committed but unpushed
+   git status --porcelain -- "$ITEM_ROOT"            # uncommitted modifications
+   git log --oneline origin/main..HEAD -- "$ITEM_ROOT"   # committed but unpushed
    ```
 
    If either is non-empty, report the item as **outdated + local edits** instead,
