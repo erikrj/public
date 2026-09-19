@@ -1,11 +1,11 @@
 ---
 name: skills-check
 description: Report which installed skills and tracked files are out of date against their authoritative source, without changing anything
-allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Bash(mktemp:*), Bash(mkdir:*), Bash(diff:*), Bash(cmp:*), Bash(awk:*), Bash(rm:*), Read, Glob
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(grep:*), Bash(sed:*), Bash(printf:*), Bash(dirname:*), Bash(mktemp:*), Bash(mkdir:*), Bash(cmp:*), Bash(awk:*), Bash(rm:*), Read, Glob
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/skills-check
-  version: 2026.09.19.0905
+  version: 2026.09.19.1211
 ---
 
 Report how every installed skill — **and** the repository's other tracked
@@ -110,9 +110,15 @@ them all.
      is **source-missing**.
 
    ```sh
+   mkdir -p "$(dirname "$TMP/$rel")"
    gh api -H "Accept: application/vnd.github.raw" \
      "repos/$OWNER/$REPO/contents/$blob?ref=$REF" > "$TMP/$rel"
    ```
+
+   The `mkdir -p` is load-bearing, not decoration. A skill directory may hold
+   nested files (`references/foo.md`), and the redirection cannot create their
+   parent — without it the fetch fails for exactly those files, and they are then
+   silently absent from the comparison rather than reported as differing.
 
 6. Compare, and classify each item into exactly one status. Compare **content
    first**, then use the version only to explain a difference:
@@ -128,7 +134,7 @@ them all.
 
      | Comparison | Status | Means |
      |---|---|---|
-     | source > local | **outdated** | the source moved on; `/skills-update` will bring it forward |
+     | source > local | **outdated** | the source moved on — but see the local-edit check below before treating that as safe to overwrite |
      | local > source | **ahead** | local edits not yet published — normal in this repository |
      | equal, content differs | **diverged** | same stamp, different bytes: one side changed without bumping |
      | either missing or malformed | **unversioned** | differs, but the direction cannot be established |
@@ -139,6 +145,25 @@ them all.
      that shape must be treated as **unversioned** rather than compared anyway;
      an unpadded month (`2026.9.19.0905`) sorts wrongly and would report the
      direction backwards.
+
+   **A version stamp is a claim, not proof.** It orders two copies only if both
+   sides were bumped whenever they changed. A local copy edited *without* a bump,
+   on a source that later advanced, reads as plain **outdated** — the local edits
+   are invisible to the comparison, and recommending `/skills-update` on that
+   basis would discard them. So before reporting any item as **outdated**, check
+   whether the local copy carries unpublished edits:
+
+   ```sh
+   git status --porcelain -- "$local"        # uncommitted local modifications
+   git log --oneline origin/main..HEAD -- "$local"   # committed but unpushed
+   ```
+
+   If either is non-empty, report the item as **outdated + local edits** instead,
+   and recommend a manual reconciliation — never `/skills-update`, which would
+   overwrite the local side. Both checks clean is the only case where a plain
+   **outdated** may carry the update recommendation, and even then say that the
+   update overwrites local bytes, so an edit made outside git's view is the
+   user's to rule out.
 
    **diverged** is the one worth stopping on. It means two copies carry the same
    version and different content, so every downstream consumer that trusts the
@@ -166,14 +191,18 @@ them all.
    | `branch-clean` | current | — |
    | `.github/copilot-instructions.md` | outdated | source `2026.09.19.0834` > local `2026.09.13.0840` |
 
-   Order it usefully: **diverged** first, then **outdated**, then
+   Order it usefully: **diverged** and **outdated + local edits** first — the two
+   where an unguarded `/skills-update` loses work — then plain **outdated**, then
    **missing-files** / **stale**, then the problem statuses (**failed**,
    **source-missing**, **unsupported**, **no-source**), and **current** and
    **ahead** last — those need no action and should not lead.
 
    End with the concrete next step, and say plainly that **nothing was fetched
    into the working tree, nothing was changed, and nothing was committed**:
-   - anything **outdated** → `/skills-update`, then review the diff and commit;
+   - anything **outdated** (local-edit check clean) → `/skills-update`, then
+     review the result and commit — noting that it overwrote the local bytes;
+   - anything **outdated + local edits** → reconcile by hand first; running
+     `/skills-update` would discard the unpublished local side;
    - anything **ahead** → the local edits are unpublished; open a PR from here;
    - anything **diverged** → resolve it by hand before running `/skills-update`,
      which would otherwise discard whichever side is local.
