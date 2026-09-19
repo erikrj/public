@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.13.0840
+  version: 2026.09.19.0834
 ---
 
 # Copilot Instructions
@@ -554,6 +554,18 @@ const table = new SessionTable(this, 'Session', {
 ```
 
 This applies with particular force when the replacement also fixes the physical name (`tableName`, `bucketName`): a retained resource keeps that name, so destroying and recreating the stack then fails on a name collision.
+
+### HTTP API Catch-All Routes
+
+**CDK-008** — An API Gateway HTTP API that is meant to hand every request to one integration (a GraphQL server, a framework router, a proxy) must use the `$default` route — `defaultIntegration` on `HttpApi`, or `addRoutes({ path: '/{proxy+}' })` **plus** an explicit `/` route — not `/{proxy+}` alone. A greedy path variable requires at least one segment, so `/{proxy+}` matches `/graphql` and `/a/b` but not the bare root, and a request to `https://host/` is answered by API Gateway with a 404 before the integration sees it. The gap is invisible in tests that only hit named paths.
+
+```ts
+// wrong — GET https://host/ is a 404 at the gateway
+api.addRoutes({ path: '/{proxy+}', methods: [HttpMethod.ANY], integration });
+
+// right — every path, the root included, reaches the integration
+new HttpApi(this, 'Api', { defaultIntegration: integration });
+```
 
 ---
 
