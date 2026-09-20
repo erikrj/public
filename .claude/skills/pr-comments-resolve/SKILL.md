@@ -5,7 +5,7 @@ allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Read, Grep, Glob
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-comments-resolve
-  version: 2026.07.25.1426
+  version: 2026.09.20.1215
 ---
 
 Close out every open **inline review thread** on the GitHub pull request associated with the **current branch**. A thread is closed one of two ways: the change it asked for was made and committed, or it was rejected with a stated reason. Both get a reply and are marked resolved. Only threads that are genuinely unresolvable — the fix is uncommitted, or the point needs the author's decision — are left open.
@@ -14,6 +14,8 @@ Scope is inline review threads specifically, because those are the only comments
 
 This skill does **not** edit code. Run `pr-comments-fix` first to make the changes and record the triage verdicts.
 
+**Always hand back the PR link.** Every exit from this skill that found a PR gives that PR's URL, written as a bare `https://github.com/...` URL on its own line so the terminal makes it clickable — never a PR number, a branch name, or a markdown label in its place. Because this report's ending is already spoken for by the rejected-thread list (step 7), the link is the report's **opening** line instead; a run that closes threads on the author's behalf is one they will want to spot-check on GitHub. The one exit without a link is the case where the current branch has no PR at all, and it says so plainly and names the branch.
+
 ## Steps
 
 1. Resolve the PR for the current branch:
@@ -21,7 +23,7 @@ This skill does **not** edit code. Run `pr-comments-fix` first to make the chang
    gh pr view --json number,url,headRefName -q '"\(.number)\t\(.url)\t\(.headRefName)"'
    ```
    Derive `{owner}` and `{repo}` from `gh repo view --json nameWithOwner`.
-   If there is no PR for the current branch, report that and stop.
+   If there is no PR for the current branch, report that and stop — name the branch, since this is the one exit with no link to give. Otherwise print the PR URL on its own line before touching any thread.
 
 2. Fetch the inline review threads with their resolution state, node id (needed to resolve), and the first comment's database id (needed to reply):
    ```sh
@@ -94,7 +96,7 @@ This skill does **not** edit code. Run `pr-comments-fix` first to make the chang
 
    Keep replies short and factual. Do not resolve a thread whose reply failed to post.
 
-7. Report the results. List each thread with:
+7. Report the results, opening with the PR URL as a bare URL on its own line. List each thread with:
    - the **file path** and **line**
    - the comment **body** (brief)
    - the outcome: **fixed + resolved** (with the cited sha), **rejected + resolved** (with the reason), **left open — uncommitted**, **left open — not fixed**, or **left open — needs your decision**

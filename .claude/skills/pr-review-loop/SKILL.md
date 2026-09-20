@@ -7,7 +7,7 @@ arguments: [rounds]
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-review-loop
-  version: 2026.07.27.1744
+  version: 2026.09.20.1200
 ---
 
 Run the entire PR review cycle for the **current branch** without a human in the loop: get a Copilot review in flight, wait for it to finish, fix what is real, reject what is not, commit and push, reply on and resolve every thread, then go around again. Stop when the PR has settled, and hand back a report the author can audit in one pass.
@@ -16,6 +16,8 @@ Run the entire PR review cycle for the **current branch** without a human in the
 
 This skill composes the existing single-step skills rather than reimplementing them. Read each referenced `SKILL.md` and follow its steps as written; if one contradicts this file, the referenced skill wins for its own step.
 
+**Always surface the PR link.** The run is unattended and long, so the author needs the PR page one click away at both ends of it: print the URL once the PR is resolved in the preconditions, before the first round starts, and again as the opening line of the final report. Write it as a bare `https://github.com/...` URL on its own line so the terminal makes it clickable — never a PR number, a branch name, or a markdown label in place of the URL. This holds on **every** exit, not just the settled one: a precondition stop, a hard error, a timed-out poll, and a rejected push all end with the same link, because a run that stopped early is exactly when the author wants to go look. The only exit without a link is the one where no PR exists at all, and it says that in as many words.
+
 ## Preconditions
 
 1. Resolve the PR for the current branch:
@@ -23,13 +25,15 @@ This skill composes the existing single-step skills rather than reimplementing t
    gh pr view --json number,url,headRefName,isDraft -q '"\(.number)\t\(.url)\t\(.headRefName)\t\(.isDraft)"'
    ```
    Derive `{owner}` and `{repo}` from `gh repo view --json nameWithOwner`.
-   If there is no PR for the current branch, stop and tell the user to run `/pr-open` first.
+   If there is no PR for the current branch, stop and tell the user to run `/pr-open` first — this is the one exit with no link to give, so say plainly that no PR exists for the branch and name the branch.
+
+   Otherwise print the PR URL on its own line before going any further. The run can take many minutes across many rounds, and the author should not have to wait for the report to get the link.
 
 2. Confirm the working tree is clean:
    ```sh
    git status --porcelain
    ```
-   If it is dirty, stop and report. Uncommitted changes make thread verification unreliable — the loop cannot tell a fix that shipped from one that is merely sitting in the tree. Tell the user to run `/commit-push` first.
+   If it is dirty, stop and report, ending with the PR URL on its own line. Uncommitted changes make thread verification unreliable — the loop cannot tell a fix that shipped from one that is merely sitting in the tree. Tell the user to run `/commit-push` first.
 
 ## The round
 
@@ -191,7 +195,7 @@ Cross-reference the triage record to explain why each is still open; a thread th
 
 Produce one report for the whole run, written to be read by someone who was not watching:
 
-- The PR URL, how many rounds ran, and which stop condition ended the loop.
+- **The PR URL as the opening line of the report**, bare and on a line of its own, followed by how many rounds ran and which stop condition ended the loop. It leads the report rather than closing it because the audit table owns the last position (below); a run whose link the author has to hunt for has failed at the one thing that is needed on every single run.
 - Per round: findings fixed (with the files touched), findings rejected (with the reason posted), findings escalated, and the commit sha pushed.
 - **Any rules added to `.github/copilot-instructions.md`**, by code, with the finding each came from. These change how every future PR is reviewed, so they need the author's eyes even though nothing in this PR broke.
 - **A consolidated "rejected without a code change" list across all rounds**, each with its file, the reviewer's point, and the reason posted to GitHub. This is the highest-value part of the report — it is every place the loop overrode a reviewer on the author's behalf, and it is what the author should read first.

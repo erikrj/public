@@ -1,14 +1,20 @@
 ---
 name: rebase
 description: Fetch and rebase the current branch onto origin/main, resolving any conflicts, then force-push with lease
-allowed-tools: Bash(git:*), Read, Edit
+allowed-tools: Bash(git:*), Bash(gh:*), Read, Edit
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/rebase
-  version: 2026.07.15.1923
+  version: 2026.09.20.1215
 ---
 
 Bring the current branch up to date with the latest `main` by rebasing it onto `origin/main`, resolving any conflicts, and force-pushing the result with `--force-with-lease`. A rebase (rather than a merge) keeps history linear, plays nicely with `pull.rebase = true`, and leaves `main`'s tip as a true ancestor of the branch so GitHub's "out of date" check passes. Requires a clean working tree — it refuses to run if there are uncommitted changes, so nothing local is ever clobbered.
+
+**Hand back the PR link when there is one.** This skill is not PR-scoped, but its output is almost always read on the way to a pull request. Once the report is otherwise complete, ask whether the current branch has an open PR:
+```sh
+gh pr view --json url,state -q 'select(.state=="OPEN") | .url'   # empty output or non-zero exit means none
+```
+If that prints a URL, end the report with it as a bare `https://github.com/...` URL on its own line, so the terminal makes it clickable — never a PR number or a branch name in its place. If it prints nothing or exits non-zero, there is no open PR: say nothing about links rather than apologizing for their absence. The check is one cheap call, so run it on every exit that did work worth looking at, including the early stops.
 
 ## Steps
 
@@ -62,4 +68,4 @@ Bring the current branch up to date with the latest `main` by rebasing it onto `
      ```
      If the lease fails, someone pushed to the branch after the rebase started. Do **not** retry with a plain `--force`. Stop and report it — the user should fetch, inspect what landed on the remote, and re-run `rebase`.
 
-7. Report the result: how many commits from `main` the branch was rebased onto, how many of the branch's commits were replayed, which files (if any) had conflicts and how they were resolved, the new head sha, and whether the push succeeded (or why it was skipped).
+7. Report the result: how many commits from `main` the branch was rebased onto, how many of the branch's commits were replayed, which files (if any) had conflicts and how they were resolved, the new head sha, and whether the push succeeded (or why it was skipped). Then run the open-PR check above and, if there is one, close with its URL — a rebase changes what the PR shows, so the link is worth following.

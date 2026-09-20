@@ -5,10 +5,12 @@ allowed-tools: Bash(gh:*), Bash(jq:*)
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-comments
-  version: 2026.07.15.1923
+  version: 2026.09.20.1215
 ---
 
 List every comment on the GitHub pull request associated with the **current branch**, with details.
+
+**Always hand back the PR link.** Every exit from this skill that found a PR ends with that PR's URL, written as a bare `https://github.com/...` URL on its own line so the terminal makes it clickable. Never substitute a PR number, a branch name, or a markdown label for the URL — the reader's next move is to open the page. The one exit without a link is the case where the current branch has no PR at all; it says so plainly and names the branch, so a missing link is never mistaken for an oversight.
 
 ## Steps
 
@@ -17,7 +19,7 @@ List every comment on the GitHub pull request associated with the **current bran
    gh pr view --json number,url -q '"\(.number)\t\(.url)"'
    ```
    Derive `{owner}` and `{repo}` from `gh repo view --json nameWithOwner`.
-   If there is no PR for the current branch, report that and stop.
+   If there is no PR for the current branch, report that and stop — name the branch, since this is the one exit with no link to give. Otherwise print the PR URL on its own line before the listing, so the link is available without scrolling past every comment.
 
 2. Fetch all four sources of comments (a GitHub PR splits them across endpoints):
 
@@ -58,4 +60,4 @@ List every comment on the GitHub pull request associated with the **current bran
    Skip review entries whose body is empty AND state is COMMENTED (these are container
    records for inline-only reviews — note the count instead of listing each).
 
-4. End with a short summary: total comments by source, and how many inline threads are unresolved.
+4. End with a short summary: total comments by source, and how many inline threads are unresolved. Close the report with the PR URL as a bare URL on its own line.
