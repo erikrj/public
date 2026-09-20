@@ -1,12 +1,12 @@
 ---
 name: pr-open
-description: Take the current working tree from changes to an open draft PR — fresh branch, commit, push, and create in one step
+description: Take the current working tree from changes to an open draft PR — fresh branch, commit, push, and create in one step, ending with the PR URL
 allowed-tools: Bash(git:*), Bash(gh:*), Read, Grep, Glob
 disable-model-invocation: true
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-open
-  version: 2026.09.20.1200
+  version: 2026.09.20.1756
 ---
 
 Take whatever is in the working tree and turn it into an open draft pull request: move the work onto a fresh branch cut from an up-to-date `origin/main`, commit it, push, and open the PR. This is `branch-clean` + `commit` + `pr-create` run back to back.
@@ -23,8 +23,9 @@ This skill composes the existing single-step skills rather than reimplementing t
    ```sh
    git rev-parse --abbrev-ref HEAD
    git status --porcelain
-   gh pr view --json number,url,state -q '"\(.state)\t\(.url)"'   # non-zero exit means no PR
+   gh pr list --head "$(git rev-parse --abbrev-ref HEAD)" --state open --json number,url -q '.[0].url // empty'
    ```
+   Empty output means the branch has no open PR. Use `gh pr list` rather than `gh pr view` for this: `view` exits non-zero both for "no PR" and for a failed call, so its exit code cannot answer the question, while `list` exits 0 either way and non-zero only on a real failure (**GEN-015**).
 
 2. If the current branch already has an **open** PR, stop and report its URL on its own line. This skill opens PRs; it does not update them. Point the user at `/commit-push` to add commits, or `/pr-review-loop` to work the review.
 
@@ -55,4 +56,4 @@ This skill composes the existing single-step skills rather than reimplementing t
 
 7. Report the result in one block: the new branch name, what happened to the old branch (deleted, or kept because it had unmerged commits), the commit sha and subject, and the PR URL. Note that the PR is a draft. Call out any change that looked surprising but was committed anyway.
 
-   Finish with the PR URL as a bare URL on its own line, followed by the note that the user can run `/pr-review-loop` to work the review cycle to completion. The link is the last thing the author needs from this run, so it goes where it is impossible to miss rather than buried mid-paragraph.
+   Note that the user can run `/pr-review-loop` to work the review cycle to completion, and then finish with the PR URL as a bare URL on its own line — the reminder comes **before** the link, so the very last line of the run is the clickable URL. The link is the last thing the author needs from this run, so it goes where it is impossible to miss rather than buried mid-paragraph.

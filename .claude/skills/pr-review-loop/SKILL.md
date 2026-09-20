@@ -1,13 +1,13 @@
 ---
 name: pr-review-loop
-description: Drive the full Copilot review cycle unattended — wait out any in-flight review, request one when none is running, fix real findings, reject false positives, push, resolve threads, repeat until settled
+description: Drive the full Copilot review cycle unattended — wait out any in-flight review, request one when none is running, fix real findings, reject false positives, push, resolve threads, repeat until settled, and report the PR URL
 allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Bash(date:*), Bash(sleep:*), Bash(wc:*), Bash(tr:*), Read, Edit, Write, Grep, Glob
 disable-model-invocation: true
 arguments: [rounds]
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-review-loop
-  version: 2026.09.20.1200
+  version: 2026.09.20.1756
 ---
 
 Run the entire PR review cycle for the **current branch** without a human in the loop: get a Copilot review in flight, wait for it to finish, fix what is real, reject what is not, commit and push, reply on and resolve every thread, then go around again. Stop when the PR has settled, and hand back a report the author can audit in one pass.
@@ -22,8 +22,10 @@ This skill composes the existing single-step skills rather than reimplementing t
 
 1. Resolve the PR for the current branch:
    ```sh
-   gh pr view --json number,url,headRefName,isDraft -q '"\(.number)\t\(.url)\t\(.headRefName)\t\(.isDraft)"'
+   branch=$(git rev-parse --abbrev-ref HEAD)
+   gh pr list --head "$branch" --state open --json number,url,headRefName,isDraft -q '.[0] | "\(.number)\t\(.url)\t\(.headRefName)\t\(.isDraft)"'
    ```
+   `gh pr list` is the existence check, not `gh pr view`: it exits **0** whether or not a PR was found — empty output means there is none — and exits non-zero only when the query itself failed, so an outage is never reported as "no PR" (**GEN-015**). The later `gh pr view --json reviewRequests` polls are fine as they stand — by then the PR is known to exist, so their exit codes are hard errors rather than answers.
    Derive `{owner}` and `{repo}` from `gh repo view --json nameWithOwner`.
    If there is no PR for the current branch, stop and tell the user to run `/pr-open` first — this is the one exit with no link to give, so say plainly that no PR exists for the branch and name the branch.
 

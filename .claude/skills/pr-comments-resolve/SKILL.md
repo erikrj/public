@@ -1,11 +1,11 @@
 ---
 name: pr-comments-resolve
-description: Close out inline PR review threads — verify fixes are committed or apply the recorded rejection, reply on each thread, and mark it resolved
+description: Close out inline PR review threads — verify fixes are committed or apply the recorded rejection, reply on each thread, mark it resolved, and report the PR URL
 allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Read, Grep, Glob
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-comments-resolve
-  version: 2026.09.20.1215
+  version: 2026.09.20.1756
 ---
 
 Close out every open **inline review thread** on the GitHub pull request associated with the **current branch**. A thread is closed one of two ways: the change it asked for was made and committed, or it was rejected with a stated reason. Both get a reply and are marked resolved. Only threads that are genuinely unresolvable — the fix is uncommitted, or the point needs the author's decision — are left open.
@@ -20,8 +20,10 @@ This skill does **not** edit code. Run `pr-comments-fix` first to make the chang
 
 1. Resolve the PR for the current branch:
    ```sh
-   gh pr view --json number,url,headRefName -q '"\(.number)\t\(.url)\t\(.headRefName)"'
+   branch=$(git rev-parse --abbrev-ref HEAD)
+   gh pr list --head "$branch" --state open --json number,url,headRefName -q '.[0] | "\(.number)\t\(.url)\t\(.headRefName)"'
    ```
+   `gh pr list` is the existence check, not `gh pr view`: it exits **0** whether or not a PR was found — empty output means there is none — and exits non-zero only when the query itself failed, so an outage is never reported as "no PR" (**GEN-015**).
    Derive `{owner}` and `{repo}` from `gh repo view --json nameWithOwner`.
    If there is no PR for the current branch, report that and stop — name the branch, since this is the one exit with no link to give. Otherwise print the PR URL on its own line before touching any thread.
 

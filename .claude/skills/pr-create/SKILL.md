@@ -1,11 +1,11 @@
 ---
 name: pr-create
-description: Push the current branch and open a draft GitHub PR with a squash-merge-ready title and body
+description: Push the current branch, open a draft GitHub PR with a squash-merge-ready title and body, and report its URL
 allowed-tools: Bash(git:*), Bash(gh:*)
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-create
-  version: 2026.09.20.1215
+  version: 2026.09.20.1756
 ---
 
 Open a **draft** GitHub pull request for the **current branch** against `main`. Because this repo **squash-merges**, the PR title and description become the final commit on `main` — so write them as the commit message for the whole feature: succinct but descriptive.
@@ -18,11 +18,12 @@ Open a **draft** GitHub pull request for the **current branch** against `main`. 
    ```sh
    git rev-parse --abbrev-ref HEAD     # current branch
    ```
-   - If the branch is `main`, stop and tell the user to create a feature branch first.
+   - If the branch is `main`, stop and tell the user to create a feature branch first. Say explicitly that no PR was opened and name the branch, since this exit has no link to give.
    - If an open PR already exists for the branch, stop and report its URL on its own line instead of creating a duplicate:
      ```sh
-     gh pr view --json url,state -q '"\(.state)\t\(.url)"'
+     gh pr list --head "$(git rev-parse --abbrev-ref HEAD)" --state open --json url -q '.[0].url // empty'
      ```
+     Empty output means there is no open PR to collide with. `gh pr list` is the existence check rather than `gh pr view`, whose non-zero exit cannot distinguish "no PR" from a failed call (**GEN-015**).
 
 2. Review what the PR will contain so the title and body reflect the actual change set, not just the latest commit:
    ```sh
@@ -31,7 +32,7 @@ Open a **draft** GitHub pull request for the **current branch** against `main`. 
    git diff --stat origin/main...HEAD
    git diff origin/main...HEAD
    ```
-   If there are no commits ahead of `origin/main`, stop and report that there is nothing to open a PR for.
+   If there are no commits ahead of `origin/main`, stop and report that there is nothing to open a PR for. Say explicitly that no PR exists yet and name the branch, since this exit has no link to give.
 
 3. Push the branch and set upstream if it isn't already pushed:
    ```sh

@@ -1,11 +1,11 @@
 ---
 name: pr-comments
-description: List all comments on the GitHub PR for the current branch, with full details
-allowed-tools: Bash(gh:*), Bash(jq:*)
+description: List all comments on the GitHub PR for the current branch with full details, and report the PR URL
+allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*)
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-comments
-  version: 2026.09.20.1215
+  version: 2026.09.20.1756
 ---
 
 List every comment on the GitHub pull request associated with the **current branch**, with details.
@@ -16,8 +16,10 @@ List every comment on the GitHub pull request associated with the **current bran
 
 1. Resolve the PR for the current branch:
    ```sh
-   gh pr view --json number,url -q '"\(.number)\t\(.url)"'
+   branch=$(git rev-parse --abbrev-ref HEAD)
+   gh pr list --head "$branch" --state open --json number,url -q '.[0] | "\(.number)\t\(.url)"'
    ```
+   `gh pr list` is the existence check, not `gh pr view`: it exits **0** whether or not a PR was found — empty output means there is none — and exits non-zero only when the query itself failed, so an outage is never reported as "no PR" (**GEN-015**).
    Derive `{owner}` and `{repo}` from `gh repo view --json nameWithOwner`.
    If there is no PR for the current branch, report that and stop — name the branch, since this is the one exit with no link to give. Otherwise print the PR URL on its own line before the listing, so the link is available without scrolling past every comment.
 

@@ -1,11 +1,11 @@
 ---
 name: pr-comments-fix
-description: Triage the GitHub PR comments for the current branch into fix / reject / escalate, apply the fixes, and record every verdict with its reason
-allowed-tools: Bash(gh:*), Bash(jq:*), Read, Edit, Write, Grep, Glob
+description: Triage the GitHub PR comments for the current branch into fix / reject / escalate, apply the fixes, record every verdict with its reason, and report the PR URL
+allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Read, Edit, Write, Grep, Glob
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-comments-fix
-  version: 2026.09.20.1215
+  version: 2026.09.20.1756
 ---
 
 Fetch every comment on the GitHub pull request associated with the **current branch**, decide which ones identify a real problem, and fix those. Comments that do not identify a real problem are recorded as rejected with a reason, so `pr-comments-resolve` can close them out on GitHub — a review cycle only terminates if wrong comments have a path to closed.
@@ -18,8 +18,10 @@ This skill only edits code in the working tree — it does **not** commit, push,
 
 1. Resolve the PR for the current branch:
    ```sh
-   gh pr view --json number,url -q '"\(.number)\t\(.url)"'
+   branch=$(git rev-parse --abbrev-ref HEAD)
+   gh pr list --head "$branch" --state open --json number,url -q '.[0] | "\(.number)\t\(.url)"'
    ```
+   `gh pr list` is the existence check, not `gh pr view`: it exits **0** whether or not a PR was found — empty output means there is none — and exits non-zero only when the query itself failed, so an outage is never reported as "no PR" (**GEN-015**).
    Derive `{owner}` and `{repo}` from `gh repo view --json nameWithOwner`.
    If there is no PR for the current branch, report that and stop — name the branch, since this is the one exit with no link to give. Otherwise print the PR URL on its own line before starting triage; triage is long, and the author should not have to wait for the report to get the link.
 

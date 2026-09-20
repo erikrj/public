@@ -1,20 +1,23 @@
 ---
 name: rebase
-description: Fetch and rebase the current branch onto origin/main, resolving any conflicts, then force-push with lease
+description: Fetch and rebase the current branch onto origin/main, resolving any conflicts, force-push with lease, and link any open PR for the branch
 allowed-tools: Bash(git:*), Bash(gh:*), Read, Edit
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/rebase
-  version: 2026.09.20.1215
+  version: 2026.09.20.1756
 ---
 
 Bring the current branch up to date with the latest `main` by rebasing it onto `origin/main`, resolving any conflicts, and force-pushing the result with `--force-with-lease`. A rebase (rather than a merge) keeps history linear, plays nicely with `pull.rebase = true`, and leaves `main`'s tip as a true ancestor of the branch so GitHub's "out of date" check passes. Requires a clean working tree — it refuses to run if there are uncommitted changes, so nothing local is ever clobbered.
 
 **Hand back the PR link when there is one.** This skill is not PR-scoped, but its output is almost always read on the way to a pull request. Once the report is otherwise complete, ask whether the current branch has an open PR:
 ```sh
-gh pr view --json url,state -q 'select(.state=="OPEN") | .url'   # empty output or non-zero exit means none
+branch=$(git rev-parse --abbrev-ref HEAD)
+gh pr list --head "$branch" --state open --json url -q '.[0].url // empty'
 ```
-If that prints a URL, end the report with it as a bare `https://github.com/...` URL on its own line, so the terminal makes it clickable — never a PR number or a branch name in its place. If it prints nothing or exits non-zero, there is no open PR: say nothing about links rather than apologizing for their absence. The check is one cheap call, so run it on every exit that did work worth looking at, including the early stops.
+If that prints a URL, end the report with it as a bare `https://github.com/...` URL on its own line, so the terminal makes it clickable — never a PR number or a branch name in its place. If it succeeds and prints nothing, there is no open PR: say nothing about links rather than apologizing for their absence. The check is one cheap call, so run it on every exit that did work worth looking at, including the early stops.
+
+Use `gh pr list`, not `gh pr view`, and treat a **non-zero exit as a failed check rather than as "no PR"**. `gh pr view` exits non-zero both when the branch genuinely has no PR and when the call itself fails — a revoked token, an offline network, a GitHub outage — so reading its exit code as an answer reports "no open PR" during an outage and silently drops a link that does exist. `gh pr list --head` separates the two: it exits **0** whether or not a PR was found, printing the URL or nothing, and exits non-zero only when the query actually failed. On a non-zero exit, say the check failed and why, rather than asserting there is no PR.
 
 ## Steps
 
