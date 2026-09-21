@@ -5,7 +5,7 @@ allowed-tools: Bash(git:*), Bash(gh:*)
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-create
-  version: 2026.09.20.1756
+  version: 2026.09.20.1803
 ---
 
 Open a **draft** GitHub pull request for the **current branch** against `main`. Because this repo **squash-merges**, the PR title and description become the final commit on `main` — so write them as the commit message for the whole feature: succinct but descriptive.
@@ -23,7 +23,7 @@ Open a **draft** GitHub pull request for the **current branch** against `main`. 
      ```sh
      gh pr list --head "$(git rev-parse --abbrev-ref HEAD)" --state open --json url -q '.[0].url // empty'
      ```
-     Empty output means there is no open PR to collide with. `gh pr list` is the existence check rather than `gh pr view`, whose non-zero exit cannot distinguish "no PR" from a failed call (**GEN-015**).
+     Only a **successful** empty result means there is no open PR to collide with. `gh pr list` is the existence check rather than `gh pr view`, whose non-zero exit cannot distinguish "no PR" from a failed call (**GEN-015**). If the call exits non-zero the check failed: stop and report which command failed and why, rather than reading the empty output as "no PR" and opening a duplicate against a PR that is already there.
 
 2. Review what the PR will contain so the title and body reflect the actual change set, not just the latest commit:
    ```sh

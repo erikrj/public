@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.20.1758
+  version: 2026.09.20.1803
 ---
 
 # Copilot Instructions
@@ -201,6 +201,15 @@ Right — absence is empty output, and a non-zero exit is a real error to report
 branch=$(git rev-parse --abbrev-ref HEAD)
 gh pr list --head "$branch" --state open --json url -q '.[0].url // empty'
 ```
+
+Guard the `jq` filter as well, or the fix is undone by the formatting. `.[0]` on an empty array is `null`, and string interpolation renders that as the text `null` rather than producing nothing — so a multi-field filter emits a line like `null\tnull` that passes straight through an "empty output means absent" test:
+
+```sh
+gh pr list --head "$branch" --state open --json number,url -q '.[0] | "\(.number)\t\(.url)"'          # emits "null\tnull"
+gh pr list --head "$branch" --state open --json number,url -q '.[0] // empty | "\(.number)\t\(.url)"'  # emits nothing
+```
+
+Consuming code must also distinguish the two non-answers it can now receive: empty output on a **zero** exit means absent, while a non-zero exit means the check failed and belongs in an error report, never in the absent path.
 
 Flag any snippet whose comment or prose equates a non-zero `gh ... view` exit with absence. A `view` call is correct once existence is already established — fetching fields of a PR the script knows it has — and the exit code may then be treated as a hard error.
 

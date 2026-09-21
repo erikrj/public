@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-open
-  version: 2026.09.20.1756
+  version: 2026.09.20.1803
 ---
 
 Take whatever is in the working tree and turn it into an open draft pull request: move the work onto a fresh branch cut from an up-to-date `origin/main`, commit it, push, and open the PR. This is `branch-clean` + `commit` + `pr-create` run back to back.
@@ -25,7 +25,7 @@ This skill composes the existing single-step skills rather than reimplementing t
    git status --porcelain
    gh pr list --head "$(git rev-parse --abbrev-ref HEAD)" --state open --json number,url -q '.[0].url // empty'
    ```
-   Empty output means the branch has no open PR. Use `gh pr list` rather than `gh pr view` for this: `view` exits non-zero both for "no PR" and for a failed call, so its exit code cannot answer the question, while `list` exits 0 either way and non-zero only on a real failure (**GEN-015**).
+   Only a **successful** empty result means the branch has no open PR. Use `gh pr list` rather than `gh pr view` for this: `view` exits non-zero both for "no PR" and for a failed call, so its exit code cannot answer the question, while `list` exits 0 either way and non-zero only on a real failure (**GEN-015**). If the call exits non-zero, the check failed — stop and report which command failed and why, and do **not** read the empty output as "no PR"; an outage would otherwise send the run down the open-a-PR path on a branch that already has one.
 
 2. If the current branch already has an **open** PR, stop and report its URL on its own line. This skill opens PRs; it does not update them. Point the user at `/commit-push` to add commits, or `/pr-review-loop` to work the review.
 
