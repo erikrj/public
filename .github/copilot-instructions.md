@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.19.0834
+  version: 2026.09.20.1803
 ---
 
 # Copilot Instructions
@@ -182,6 +182,36 @@ over:
 // truncate the memo to 15 characters
 const description = memo.slice(0, 15);
 ```
+
+### Existence Checks With the GitHub CLI
+
+**GEN-015** — When a script or `SKILL.md` snippet asks *whether something exists* on GitHub, use a `gh` subcommand that reports absence in its **output**, and never read a non-zero exit code as the answer. `gh pr view`, `gh issue view`, and `gh release view` exit non-zero both when the thing genuinely does not exist and when the call itself failed — an expired token, an offline network, a rate limit, a GitHub outage. A check that treats every non-zero exit as "not found" therefore reports a confident negative during an outage, and the failure is invisible: the run looks clean while silently omitting whatever the check was gating.
+
+The `list` forms separate the two cases. They exit **0** whether or not anything matched, printing the match or nothing, and exit non-zero only when the query actually failed.
+
+Wrong — an outage is indistinguishable from "no PR":
+
+```sh
+gh pr view --json url,state -q 'select(.state=="OPEN") | .url'   # non-zero also means "the call failed"
+```
+
+Right — absence is empty output, and a non-zero exit is a real error to report:
+
+```sh
+branch=$(git rev-parse --abbrev-ref HEAD)
+gh pr list --head "$branch" --state open --json url -q '.[0].url // empty'
+```
+
+Guard the `jq` filter as well, or the fix is undone by the formatting. `.[0]` on an empty array is `null`, and string interpolation renders that as the text `null` rather than producing nothing — so a multi-field filter emits a line like `null\tnull` that passes straight through an "empty output means absent" test:
+
+```sh
+gh pr list --head "$branch" --state open --json number,url -q '.[0] | "\(.number)\t\(.url)"'          # emits "null\tnull"
+gh pr list --head "$branch" --state open --json number,url -q '.[0] // empty | "\(.number)\t\(.url)"'  # emits nothing
+```
+
+Consuming code must also distinguish the two non-answers it can now receive: empty output on a **zero** exit means absent, while a non-zero exit means the check failed and belongs in an error report, never in the absent path.
+
+Flag any snippet whose comment or prose equates a non-zero `gh ... view` exit with absence. A `view` call is correct once existence is already established — fetching fields of a PR the script knows it has — and the exit code may then be treated as a hard error.
 
 ---
 

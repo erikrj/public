@@ -1,18 +1,26 @@
 ---
 name: codereview
-description: Review a path against CLAUDE.md and copilot-instructions.md rules and record violations in CODEREVIEW.md
-allowed-tools: Bash(git:*), Bash(rg:*), Bash(ls:*), Bash(find:*), Read, Edit, Write, Grep, Glob
+description: Review a path against CLAUDE.md and copilot-instructions.md rules, record violations in CODEREVIEW.md, and link any open PR for the branch
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(rg:*), Bash(ls:*), Bash(find:*), Read, Edit, Write, Grep, Glob
 disable-model-invocation: true
 arguments: [path]
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/codereview
-  version: 2026.07.15.1923
+  version: 2026.09.20.1816
 ---
 
 Review every source file under `$path` against the repository's review rules and report the violations you find. `$path` is a directory (relative to the repo root or absolute) that is scanned **recursively**. The whole repository is too large to review at once, so this skill is always scoped to a single path — review only what is under `$path`.
 
 If `$path` is empty or does not exist, stop and ask for a directory to review. Do **not** default to the repo root.
+
+**Hand back the PR link when there is one.** This skill is not PR-scoped, but its output is almost always read on the way to a pull request. Once the report is otherwise complete, ask whether the current branch has an open PR:
+```sh
+gh pr list --head "$(git rev-parse --abbrev-ref HEAD)" --state open --json url -q '.[0].url // empty'
+```
+If that prints a URL, end the report with it as a bare `https://github.com/...` URL on its own line, so the terminal makes it clickable — never a PR number or a branch name in its place. If it succeeds and prints nothing, there is no open PR: say nothing about links rather than apologizing for their absence. The check is one cheap call, so run it on every exit that did work worth looking at, including the early stops.
+
+Use `gh pr list`, not `gh pr view`, and treat a **non-zero exit as a failed check rather than as "no PR"**. `gh pr view` exits non-zero both when the branch genuinely has no PR and when the call itself fails — a revoked token, an offline network, a GitHub outage — so reading its exit code as an answer reports "no open PR" during an outage and silently drops a link that does exist. `gh pr list --head` separates the two: it exits **0** whether or not a PR was found, printing the URL or nothing, and exits non-zero only when the query actually failed. On a non-zero exit, say the check failed and why, rather than asserting there is no PR.
 
 ## Steps
 
@@ -39,7 +47,7 @@ If `$path` is empty or does not exist, stop and ask for a directory to review. D
    - Keep findings organized by file path, each entry showing the rule code, line number, and description, so the file reads as the current outstanding-violations backlog.
    - If reconciling leaves no findings at all, keep the header and state that there are currently no recorded violations.
 
-6. Report a short summary to the console: how many files were reviewed under `$path`, how many violations were found this run, and how many stale findings were removed from `CODEREVIEW.md`.
+6. Report a short summary to the console: how many files were reviewed under `$path`, how many violations were found this run, and how many stale findings were removed from `CODEREVIEW.md`. Then run the open-PR check above and, if there is one, close with its URL — the findings are usually read next to the PR they belong to.
 
 ## CODEREVIEW.md header
 

@@ -1,13 +1,13 @@
 ---
 name: pr-review-loop
-description: Drive the full Copilot review cycle unattended — wait out any in-flight review, request one when none is running, fix real findings, reject false positives, push, resolve threads, repeat until settled
+description: Drive the full Copilot review cycle unattended — wait out any in-flight review, request one when none is running, fix real findings, reject false positives, push, resolve threads, repeat until settled, and report the PR URL
 allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Bash(date:*), Bash(sleep:*), Bash(wc:*), Bash(tr:*), Read, Edit, Write, Grep, Glob
 disable-model-invocation: true
 arguments: [rounds]
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-review-loop
-  version: 2026.07.27.1744
+  version: 2026.09.20.1816
 ---
 
 Run the entire PR review cycle for the **current branch** without a human in the loop: get a Copilot review in flight, wait for it to finish, fix what is real, reject what is not, commit and push, reply on and resolve every thread, then go around again. Stop when the PR has settled, and hand back a report the author can audit in one pass.
@@ -16,20 +16,27 @@ Run the entire PR review cycle for the **current branch** without a human in the
 
 This skill composes the existing single-step skills rather than reimplementing them. Read each referenced `SKILL.md` and follow its steps as written; if one contradicts this file, the referenced skill wins for its own step.
 
+**Always surface the PR link.** The run is unattended and long, so the author needs the PR page one click away at both ends of it: print the URL once the PR is resolved in the preconditions, before the first round starts, and again as the opening line of the final report. Write it as a bare `https://github.com/...` URL on its own line so the terminal makes it clickable — never a PR number, a branch name, or a markdown label in place of the URL. This holds on **every** exit, not just the settled one: a precondition stop, a hard error, a timed-out poll, and a rejected push all end with the same link, because a run that stopped early is exactly when the author wants to go look. Two exits have no link, and both are ones where **no URL was ever resolved**: the lookup succeeded and found no PR, and the lookup itself failed. The first says plainly that the branch has no PR; the second says which command failed and why, and must never be reported as "no PR". Every exit *after* a PR has been resolved carries the link, without exception.
+
 ## Preconditions
 
 1. Resolve the PR for the current branch:
    ```sh
-   gh pr view --json number,url,headRefName,isDraft -q '"\(.number)\t\(.url)\t\(.headRefName)\t\(.isDraft)"'
+   gh pr list --head "$(git rev-parse --abbrev-ref HEAD)" --state open --json number,url,headRefName,isDraft -q '.[0] // empty | "\(.number)\t\(.url)\t\(.headRefName)\t\(.isDraft)"'
    ```
+
+   `gh pr list` is the existence check, not `gh pr view`: it exits **0** whether or not a PR was found — empty output means there is none — and exits non-zero only when the query itself failed, so an outage is never reported as "no PR" (**GEN-015**). Guard the interpolation with `.[0] // empty`: a bare `.[0] | "\(.number)…"` interpolates a `null` first element into the literal line `null\tnull`, which defeats the empty-output test and carries invalid PR fields into the rest of the skill. A non-zero exit is a **failed check**, not an answer — stop and report it rather than taking the no-PR path. The later `gh pr view --json reviewRequests` polls are fine as they stand — by then the PR is known to exist, so their exit codes are hard errors rather than answers.
+
    Derive `{owner}` and `{repo}` from `gh repo view --json nameWithOwner`.
-   If there is no PR for the current branch, stop and tell the user to run `/pr-open` first.
+   If there is no PR for the current branch, stop and tell the user to run `/pr-open` first — since this is one of only two exits with no link to give — the other is a **failed** lookup, which reports the failed command instead of asserting that no PR exists — so say plainly that no PR exists for the branch and name the branch.
+
+   Otherwise print the PR URL on its own line before going any further. The run can take many minutes across many rounds, and the author should not have to wait for the report to get the link.
 
 2. Confirm the working tree is clean:
    ```sh
    git status --porcelain
    ```
-   If it is dirty, stop and report. Uncommitted changes make thread verification unreliable — the loop cannot tell a fix that shipped from one that is merely sitting in the tree. Tell the user to run `/commit-push` first.
+   If it is dirty, stop and report, ending with the PR URL on its own line. Uncommitted changes make thread verification unreliable — the loop cannot tell a fix that shipped from one that is merely sitting in the tree. Tell the user to run `/commit-push` first.
 
 ## The round
 
@@ -191,7 +198,7 @@ Cross-reference the triage record to explain why each is still open; a thread th
 
 Produce one report for the whole run, written to be read by someone who was not watching:
 
-- The PR URL, how many rounds ran, and which stop condition ended the loop.
+- **The PR URL as the opening line of the report**, bare and on a line of its own, followed by how many rounds ran and which stop condition ended the loop. It leads the report rather than closing it because the audit table owns the last position (below); a run whose link the author has to hunt for has failed at the one thing that is needed on every single run.
 - Per round: findings fixed (with the files touched), findings rejected (with the reason posted), findings escalated, and the commit sha pushed.
 - **Any rules added to `.github/copilot-instructions.md`**, by code, with the finding each came from. These change how every future PR is reviewed, so they need the author's eyes even though nothing in this PR broke.
 - **A consolidated "rejected without a code change" list across all rounds**, each with its file, the reviewer's point, and the reason posted to GitHub. This is the highest-value part of the report — it is every place the loop overrode a reviewer on the author's behalf, and it is what the author should read first.

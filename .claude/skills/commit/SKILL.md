@@ -1,16 +1,24 @@
 ---
 name: commit
-description: Stage all modified files and commit them with a descriptive message
-allowed-tools: Bash(git:*)
+description: Stage all modified files, commit them with a descriptive message, and link any open PR for the branch
+allowed-tools: Bash(git:*), Bash(gh:*)
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/commit
-  version: 2026.07.15.1923
+  version: 2026.09.20.1816
 ---
 
 Stage every modified, deleted, and untracked file in the working tree, then commit them with a clear, descriptive message. This skill commits locally only — it does **not** push.
 
 **Commit the working tree exactly as it is.** Invoking this skill is an explicit instruction to commit *everything* currently in the working tree. Do not second-guess, filter, exclude, revert, `git restore`, `git checkout`, or `git stash` any change — not even one that looks unrelated, unintended, surprising, or like generated/regenerated output. It is not your call to decide a change is "noise" and drop it. If a change looks unexpected, still commit it, and simply flag it in your final report so the user can decide. The only changes that may be left out are ones the user names explicitly in the same request.
+
+**Hand back the PR link when there is one.** This skill is not PR-scoped, but its output is almost always read on the way to a pull request. Once the report is otherwise complete, ask whether the current branch has an open PR:
+```sh
+gh pr list --head "$(git rev-parse --abbrev-ref HEAD)" --state open --json url -q '.[0].url // empty'
+```
+If that prints a URL, end the report with it as a bare `https://github.com/...` URL on its own line, so the terminal makes it clickable — never a PR number or a branch name in its place. If it succeeds and prints nothing, there is no open PR: say nothing about links rather than apologizing for their absence. The check is one cheap call, so run it on every exit that did work worth looking at, including the early stops.
+
+Use `gh pr list`, not `gh pr view`, and treat a **non-zero exit as a failed check rather than as "no PR"**. `gh pr view` exits non-zero both when the branch genuinely has no PR and when the call itself fails — a revoked token, an offline network, a GitHub outage — so reading its exit code as an answer reports "no open PR" during an outage and silently drops a link that does exist. `gh pr list --head` separates the two: it exits **0** whether or not a PR was found, printing the URL or nothing, and exits non-zero only when the query actually failed. On a non-zero exit, say the check failed and why, rather than asserting there is no PR.
 
 ## Steps
 
@@ -40,4 +48,4 @@ Stage every modified, deleted, and untracked file in the working tree, then comm
    git commit -m "<subject>" -m "<optional body>" -m "Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
    ```
 
-6. Report the result: the commit sha, the subject line, and the files included. Remind the user that the commit was **not** pushed.
+6. Report the result: the commit sha, the subject line, and the files included. Remind the user that the commit was **not** pushed. Then run the open-PR check above and, if there is one, close with its URL — noting that this commit is not on it yet, since nothing was pushed.
