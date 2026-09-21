@@ -5,12 +5,12 @@ allowed-tools: Bash(git:*), Bash(gh:*)
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-create
-  version: 2026.09.20.1803
+  version: 2026.09.20.1811
 ---
 
 Open a **draft** GitHub pull request for the **current branch** against `main`. Because this repo **squash-merges**, the PR title and description become the final commit on `main` — so write them as the commit message for the whole feature: succinct but descriptive.
 
-**Always hand back the PR link.** Every exit that has a PR — the one this skill opens, or the open one it finds in step 1 — ends with that PR's URL, written as a bare `https://github.com/...` URL on its own line so the terminal makes it clickable. Never substitute a PR number, a branch name, or a markdown label for the URL. The exits with no PR are the guards in steps 1 and 2 (on `main`, or nothing ahead of `origin/main`); each says so in as many words and names the branch, so a missing link is never mistaken for an oversight. If the push or `gh pr create` fails, report which step failed and give the branch name, since no URL exists yet.
+**Always hand back the PR link.** Every exit that has a PR — the one this skill opens, or the open one it finds in step 1 — ends with that PR's URL, written as a bare `https://github.com/...` URL on its own line so the terminal makes it clickable. Never substitute a PR number, a branch name, or a markdown label for the URL. The exits with no PR are the guards in steps 1 and 2 (on `main`, or nothing ahead of `origin/main`) and a **failed** lookup in step 1; each says so in as many words and names the branch, so a missing link is never mistaken for an oversight — and a failed lookup reports the failed command rather than asserting that no PR exists. If the push or `gh pr create` fails, report which step failed and give the branch name, since no URL exists yet.
 
 ## Steps
 

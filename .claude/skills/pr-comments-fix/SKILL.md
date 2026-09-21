@@ -5,14 +5,14 @@ allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Read, Edit, Write, Grep, Glo
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-comments-fix
-  version: 2026.09.20.1803
+  version: 2026.09.20.1811
 ---
 
 Fetch every comment on the GitHub pull request associated with the **current branch**, decide which ones identify a real problem, and fix those. Comments that do not identify a real problem are recorded as rejected with a reason, so `pr-comments-resolve` can close them out on GitHub — a review cycle only terminates if wrong comments have a path to closed.
 
 This skill only edits code in the working tree — it does **not** commit, push, reply to threads, or mark threads resolved on GitHub.
 
-**Always hand back the PR link.** Every exit from this skill that found a PR ends with that PR's URL, written as a bare `https://github.com/...` URL on its own line so the terminal makes it clickable. Never substitute a PR number, a branch name, or a markdown label for the URL — the reader's next move is to open the page. The one exit without a link is the case where the current branch has no PR at all; it says so plainly and names the branch, so a missing link is never mistaken for an oversight.
+**Always hand back the PR link.** Every exit from this skill that found a PR ends with that PR's URL, written as a bare `https://github.com/...` URL on its own line so the terminal makes it clickable. Never substitute a PR number, a branch name, or a markdown label for the URL — the reader's next move is to open the page. Only two exits have no link, and in both no URL was ever resolved: the lookup found no PR, and the lookup itself failed. The first says plainly that the branch has no PR; the second reports the failed command and must never be phrased as "no PR".
 
 ## Steps
 
@@ -23,7 +23,7 @@ This skill only edits code in the working tree — it does **not** commit, push,
    ```
    `gh pr list` is the existence check, not `gh pr view`: it exits **0** whether or not a PR was found — empty output means there is none — and exits non-zero only when the query itself failed, so an outage is never reported as "no PR" (**GEN-015**). Guard the interpolation with `.[0] // empty`: a bare `.[0] | "\(.number)…"` interpolates a `null` first element into the literal line `null\tnull`, which defeats the empty-output test and carries invalid PR fields into the rest of the skill. A non-zero exit is a **failed check**, not an answer — stop and report it rather than taking the no-PR path.
    Derive `{owner}` and `{repo}` from `gh repo view --json nameWithOwner`.
-   If there is no PR for the current branch, report that and stop — name the branch, since this is the one exit with no link to give. Otherwise print the PR URL on its own line before starting triage; triage is long, and the author should not have to wait for the report to get the link.
+   If there is no PR for the current branch, report that and stop — name the branch, since this is one of only two exits with no link to give — the other is a **failed** lookup, which reports the failed command instead of asserting that no PR exists. Otherwise print the PR URL on its own line before starting triage; triage is long, and the author should not have to wait for the report to get the link.
 
 2. Fetch all four sources of comments (a GitHub PR splits them across endpoints):
 

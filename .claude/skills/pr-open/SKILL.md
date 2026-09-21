@@ -6,7 +6,7 @@ disable-model-invocation: true
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-open
-  version: 2026.09.20.1803
+  version: 2026.09.20.1811
 ---
 
 Take whatever is in the working tree and turn it into an open draft pull request: move the work onto a fresh branch cut from an up-to-date `origin/main`, commit it, push, and open the PR. This is `branch-clean` + `commit` + `pr-create` run back to back.
@@ -15,7 +15,7 @@ This skill composes the existing single-step skills rather than reimplementing t
 
 **Carry every uncommitted change through.** As with `branch-clean` and `commit`, invoking this skill is an instruction to ship the working tree exactly as it stands. Do not filter, exclude, revert, or stash any change because it looks unrelated or unintended. Flag anything surprising in the final report and let the author decide.
 
-**Always hand back the PR link.** Every exit from this skill that has a PR — the one it opens, or the open one it finds in step 2 — ends with that PR's URL, written as a bare `https://github.com/...` URL on its own line so the terminal makes it clickable. Never substitute a PR number, a branch name, or a markdown label for the URL; the author's next move is to open the page. The one exit with no PR is step 3, and it says so in as many words and names the current branch instead, so a missing link is never mistaken for an oversight. The same applies when a phase fails partway: report which phase failed, and give the PR URL if one was created before the failure or the branch name if none was.
+**Always hand back the PR link.** Every exit from this skill that has a PR — the one it opens, or the open one it finds in step 2 — ends with that PR's URL, written as a bare `https://github.com/...` URL on its own line so the terminal makes it clickable. Never substitute a PR number, a branch name, or a markdown label for the URL; the author's next move is to open the page. The exits with no PR are step 3 and a **failed** lookup in step 1; each says so in as many words and names the current branch instead, so a missing link is never mistaken for an oversight — and a failed lookup reports the failed command rather than asserting that no PR exists. The same applies when a phase fails partway: report which phase failed, and give the PR URL if one was created before the failure or the branch name if none was.
 
 ## Steps
 
@@ -29,7 +29,7 @@ This skill composes the existing single-step skills rather than reimplementing t
 
 2. If the current branch already has an **open** PR, stop and report its URL on its own line. This skill opens PRs; it does not update them. Point the user at `/commit-push` to add commits, or `/pr-review-loop` to work the review.
 
-3. If the tree is clean **and** the branch has no commits ahead of `origin/main`, stop — there is nothing to open a PR for. Say explicitly that no PR exists yet and name the current branch, since this is the one exit with no link to give.
+3. If the tree is clean **and** the branch has no commits ahead of `origin/main`, stop — there is nothing to open a PR for. Say explicitly that no PR exists yet and name the current branch, since this is one of only two exits with no link to give — the other is a **failed** lookup, which reports the failed command instead of asserting that no PR exists.
 
 4. **Branch phase.** The goal is that the work sits on a feature branch based on an up-to-date `origin/main`. Check whether that is already true before doing anything, with a test that answers the question rather than printing values for you to eyeball:
    ```sh
