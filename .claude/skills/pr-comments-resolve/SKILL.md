@@ -5,7 +5,7 @@ allowed-tools: Bash(gh:*), Bash(jq:*), Bash(git:*), Read, Grep, Glob
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-comments-resolve
-  version: 2026.09.20.1811
+  version: 2026.09.20.1816
 ---
 
 Close out every open **inline review thread** on the GitHub pull request associated with the **current branch**. A thread is closed one of two ways: the change it asked for was made and committed, or it was rejected with a stated reason. Both get a reply and are marked resolved. Only threads that are genuinely unresolvable — the fix is uncommitted, or the point needs the author's decision — are left open.
@@ -20,10 +20,11 @@ This skill does **not** edit code. Run `pr-comments-fix` first to make the chang
 
 1. Resolve the PR for the current branch:
    ```sh
-   branch=$(git rev-parse --abbrev-ref HEAD)
-   gh pr list --head "$branch" --state open --json number,url,headRefName -q '.[0] // empty | "\(.number)\t\(.url)\t\(.headRefName)"'
+   gh pr list --head "$(git rev-parse --abbrev-ref HEAD)" --state open --json number,url,headRefName -q '.[0] // empty | "\(.number)\t\(.url)\t\(.headRefName)"'
    ```
+
    `gh pr list` is the existence check, not `gh pr view`: it exits **0** whether or not a PR was found — empty output means there is none — and exits non-zero only when the query itself failed, so an outage is never reported as "no PR" (**GEN-015**). Guard the interpolation with `.[0] // empty`: a bare `.[0] | "\(.number)…"` interpolates a `null` first element into the literal line `null\tnull`, which defeats the empty-output test and carries invalid PR fields into the rest of the skill. A non-zero exit is a **failed check**, not an answer — stop and report it rather than taking the no-PR path.
+
    Derive `{owner}` and `{repo}` from `gh repo view --json nameWithOwner`.
    If there is no PR for the current branch, report that and stop — name the branch, since this is one of only two exits with no link to give — the other is a **failed** lookup, which reports the failed command instead of asserting that no PR exists. Otherwise print the PR URL on its own line before touching any thread.
 

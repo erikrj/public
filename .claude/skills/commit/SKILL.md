@@ -5,7 +5,7 @@ allowed-tools: Bash(git:*), Bash(gh:*)
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/commit
-  version: 2026.09.20.1756
+  version: 2026.09.20.1816
 ---
 
 Stage every modified, deleted, and untracked file in the working tree, then commit them with a clear, descriptive message. This skill commits locally only — it does **not** push.
@@ -14,8 +14,7 @@ Stage every modified, deleted, and untracked file in the working tree, then comm
 
 **Hand back the PR link when there is one.** This skill is not PR-scoped, but its output is almost always read on the way to a pull request. Once the report is otherwise complete, ask whether the current branch has an open PR:
 ```sh
-branch=$(git rev-parse --abbrev-ref HEAD)
-gh pr list --head "$branch" --state open --json url -q '.[0].url // empty'
+gh pr list --head "$(git rev-parse --abbrev-ref HEAD)" --state open --json url -q '.[0].url // empty'
 ```
 If that prints a URL, end the report with it as a bare `https://github.com/...` URL on its own line, so the terminal makes it clickable — never a PR number or a branch name in its place. If it succeeds and prints nothing, there is no open PR: say nothing about links rather than apologizing for their absence. The check is one cheap call, so run it on every exit that did work worth looking at, including the early stops.
 

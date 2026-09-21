@@ -7,7 +7,7 @@ arguments: [rounds]
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/pr-review-loop
-  version: 2026.09.20.1811
+  version: 2026.09.20.1816
 ---
 
 Run the entire PR review cycle for the **current branch** without a human in the loop: get a Copilot review in flight, wait for it to finish, fix what is real, reject what is not, commit and push, reply on and resolve every thread, then go around again. Stop when the PR has settled, and hand back a report the author can audit in one pass.
@@ -22,10 +22,11 @@ This skill composes the existing single-step skills rather than reimplementing t
 
 1. Resolve the PR for the current branch:
    ```sh
-   branch=$(git rev-parse --abbrev-ref HEAD)
-   gh pr list --head "$branch" --state open --json number,url,headRefName,isDraft -q '.[0] // empty | "\(.number)\t\(.url)\t\(.headRefName)\t\(.isDraft)"'
+   gh pr list --head "$(git rev-parse --abbrev-ref HEAD)" --state open --json number,url,headRefName,isDraft -q '.[0] // empty | "\(.number)\t\(.url)\t\(.headRefName)\t\(.isDraft)"'
    ```
+
    `gh pr list` is the existence check, not `gh pr view`: it exits **0** whether or not a PR was found — empty output means there is none — and exits non-zero only when the query itself failed, so an outage is never reported as "no PR" (**GEN-015**). Guard the interpolation with `.[0] // empty`: a bare `.[0] | "\(.number)…"` interpolates a `null` first element into the literal line `null\tnull`, which defeats the empty-output test and carries invalid PR fields into the rest of the skill. A non-zero exit is a **failed check**, not an answer — stop and report it rather than taking the no-PR path. The later `gh pr view --json reviewRequests` polls are fine as they stand — by then the PR is known to exist, so their exit codes are hard errors rather than answers.
+
    Derive `{owner}` and `{repo}` from `gh repo view --json nameWithOwner`.
    If there is no PR for the current branch, stop and tell the user to run `/pr-open` first — since this is one of only two exits with no link to give — the other is a **failed** lookup, which reports the failed command instead of asserting that no PR exists — so say plainly that no PR exists for the branch and name the branch.
 
