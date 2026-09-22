@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.20.1803
+  version: 2026.09.22.0900
 ---
 
 # Copilot Instructions
@@ -212,6 +212,24 @@ gh pr list --head "$branch" --state open --json number,url -q '.[0] // empty | "
 Consuming code must also distinguish the two non-answers it can now receive: empty output on a **zero** exit means absent, while a non-zero exit means the check failed and belongs in an error report, never in the absent path.
 
 Flag any snippet whose comment or prose equates a non-zero `gh ... view` exit with absence. A `view` call is correct once existence is already established — fetching fields of a PR the script knows it has — and the exit code may then be treated as a hard error.
+
+### Prescribed Fixes Obeying Their Own Rule
+
+**GEN-016** — A rule's recommended fix must not do the thing the rule forbids. When a rule states a prohibition and then shows a "right" example, the example is the operative definition of the rule: a reader who follows it is following the rule. If the example performs the forbidden operation, the prohibition is stated too broadly and must be narrowed to the case it actually means, with the exception named in the rule text rather than left for the reader to infer.
+
+```md
+<!-- wrong — the prohibition is absolute, but the prescribed guard violates it -->
+A reactive property must not be read after an `await`.
+
+// right
+const isCurrent = () => this.url === url;   // reads a reactive property after an await
+
+<!-- right — the prohibition is scoped, and the exception is stated -->
+A reactive property must not be read **for its value** after an `await`. The one read
+permitted after an `await` is the current-run check itself.
+```
+
+Check every rule that pairs a prohibition with a recommended pattern: read the prohibition literally, then read the recommended code as a reviewer would apply it. If the code would be flagged by the rule, either narrow the prohibition or change the example — a rule that forbids its own remedy is unenforceable, because the reviewer cannot tell which of the two to follow.
 
 ---
 
@@ -795,6 +813,50 @@ this.dispatchEvent(new CustomEvent('value-changed', {detail: value}));
 // Legacy alias — remove once consumers migrate.
 this.dispatchEvent(new CustomEvent('valueChanged', {detail: value}));
 ```
+
+### Asynchronous Task State
+
+**LIT-003** — Inside a `@lit/task` task body, a reactive property must not be read **for its value** after an `await`, and component state must not be assigned without first checking that the run is still the current one. The one read permitted after an `await` is the current-run check itself — comparing a reactive property against the arg the run started on purely to decide whether to bail. A task re-runs when its args change, and the run it replaces has its `AbortSignal` aborted — but aborting is a request, not a stop: a task function that never looks at `signal` resumes after its `await` and finishes. Anything it reads from `this` at that point belongs to the run that replaced it, and anything it assigns overwrites that run's work. The result is a component configured from one input while displaying another, which is invisible in tests because it needs two overlapping runs to reproduce and leaves no error behind.
+
+Capture what the run needs before its first `await`, honour the `signal` the task is handed, and compare against the args the run started on before each assignment:
+
+```ts
+// wrong — the signal is ignored, `hidden` belongs to whichever session is
+// current when the awaits resolve, and the assignments clobber a newer run
+task: async ([url, sessionId]) => {
+  const session = await createSession(url, sessionId);
+  const client = await createClient(session);
+  const hidden = this.paymentSession?.hidden === true;
+  this.#client = client;
+  this.#widget = new Widget(client, {hidden});
+},
+
+// right — read up front, plumb the signal through, and bail before
+// touching shared state
+task: async ([url, sessionId], {signal}) => {
+  const hidden = this.paymentSession?.hidden === true;
+  const isCurrent = () =>
+    this.url === url && this.paymentSession?.id === sessionId;
+
+  const session = await createSession(url, sessionId, {signal});
+  signal.throwIfAborted();
+  if (!isCurrent()) return undefined;
+
+  const client = await createClient(session, {signal});
+  signal.throwIfAborted();
+  if (!isCurrent()) return undefined;
+  this.#client = client;
+  this.#widget = new Widget(client, {hidden});
+},
+```
+
+Pass `signal` to every abort-aware call the run makes, and check it after each `await` — that is what lets a superseded run stop early instead of doing the rest of its work for nothing. It does not replace the current-run guard: the signal only aborts work that consults it, `throwIfAborted()` is a no-op for the window between an `await` resolving and the abort arriving, and neither says anything about whether the args this run started on are still the component's. Both checks are required.
+
+The `isCurrent()` guard is not a violation of the rule: it never consumes the property's value, it only compares it against the run's own args. Reading a stale value there is the whole point — a mismatch is the signal to bail. Every other read must happen before the first `await`. Where a task is not keyed on args that identify the run, use a non-reactive generation counter instead — increment a private field on each run, capture it in a local, and compare the local against the field after each `await`.
+
+The same applies to a side effect the run performs rather than stores — a dispatched event, a callback, a navigation. Guard it with the same check, or a stale run reports on a session it never looked at.
+
+A `@state` flag derived from such a run must also be cleared when the inputs that produced it change, or it outlives the run and suppresses every later one. Clear it against the value the task is actually keyed on, not the properties behind it: where the key comes from a getter (`resolvedUrl`, derived from `url` and `env`), watching only `url` misses a change to `env`.
 
 ---
 
