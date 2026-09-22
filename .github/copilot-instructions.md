@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.22.0849
+  version: 2026.09.22.0900
 ---
 
 # Copilot Instructions
@@ -816,13 +816,13 @@ this.dispatchEvent(new CustomEvent('valueChanged', {detail: value}));
 
 ### Asynchronous Task State
 
-**LIT-003** — Inside a `@lit/task` task body, a reactive property must not be read **for its value** after an `await`, and component state must not be assigned without first checking that the run is still the current one. The one read permitted after an `await` is the current-run check itself — comparing a reactive property against the arg the run started on purely to decide whether to bail. A task re-runs when its args change, but the run it replaces is not cancelled — it resumes after its `await` and finishes. Anything it reads from `this` at that point belongs to the run that replaced it, and anything it assigns overwrites that run's work. The result is a component configured from one input while displaying another, which is invisible in tests because it needs two overlapping runs to reproduce and leaves no error behind.
+**LIT-003** — Inside a `@lit/task` task body, a reactive property must not be read **for its value** after an `await`, and component state must not be assigned without first checking that the run is still the current one. The one read permitted after an `await` is the current-run check itself — comparing a reactive property against the arg the run started on purely to decide whether to bail. A task re-runs when its args change, and the run it replaces has its `AbortSignal` aborted — but aborting is a request, not a stop: a task function that never looks at `signal` resumes after its `await` and finishes. Anything it reads from `this` at that point belongs to the run that replaced it, and anything it assigns overwrites that run's work. The result is a component configured from one input while displaying another, which is invisible in tests because it needs two overlapping runs to reproduce and leaves no error behind.
 
-Capture what the run needs before its first `await`, and compare against the args the run started on before each assignment:
+Capture what the run needs before its first `await`, honour the `signal` the task is handed, and compare against the args the run started on before each assignment:
 
 ```ts
-// wrong — `hidden` belongs to whichever session is current when the awaits
-// resolve, and the assignments clobber a newer run
+// wrong — the signal is ignored, `hidden` belongs to whichever session is
+// current when the awaits resolve, and the assignments clobber a newer run
 task: async ([url, sessionId]) => {
   const session = await createSession(url, sessionId);
   const client = await createClient(session);
@@ -831,21 +831,26 @@ task: async ([url, sessionId]) => {
   this.#widget = new Widget(client, {hidden});
 },
 
-// right — read up front, and bail before touching shared state
-task: async ([url, sessionId]) => {
+// right — read up front, plumb the signal through, and bail before
+// touching shared state
+task: async ([url, sessionId], {signal}) => {
   const hidden = this.paymentSession?.hidden === true;
   const isCurrent = () =>
     this.url === url && this.paymentSession?.id === sessionId;
 
-  const session = await createSession(url, sessionId);
+  const session = await createSession(url, sessionId, {signal});
+  signal.throwIfAborted();
   if (!isCurrent()) return undefined;
 
-  const client = await createClient(session);
+  const client = await createClient(session, {signal});
+  signal.throwIfAborted();
   if (!isCurrent()) return undefined;
   this.#client = client;
   this.#widget = new Widget(client, {hidden});
 },
 ```
+
+Pass `signal` to every abort-aware call the run makes, and check it after each `await` — that is what lets a superseded run stop early instead of doing the rest of its work for nothing. It does not replace the current-run guard: the signal only aborts work that consults it, `throwIfAborted()` is a no-op for the window between an `await` resolving and the abort arriving, and neither says anything about whether the args this run started on are still the component's. Both checks are required.
 
 The `isCurrent()` guard is not a violation of the rule: it never consumes the property's value, it only compares it against the run's own args. Reading a stale value there is the whole point — a mismatch is the signal to bail. Every other read must happen before the first `await`. Where a task is not keyed on args that identify the run, use a non-reactive generation counter instead — increment a private field on each run, capture it in a local, and compare the local against the field after each `await`.
 
