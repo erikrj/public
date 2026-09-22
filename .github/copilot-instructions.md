@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.20.1803
+  version: 2026.09.22.0635
 ---
 
 # Copilot Instructions
@@ -795,6 +795,43 @@ this.dispatchEvent(new CustomEvent('value-changed', {detail: value}));
 // Legacy alias — remove once consumers migrate.
 this.dispatchEvent(new CustomEvent('valueChanged', {detail: value}));
 ```
+
+### Asynchronous Task State
+
+**LIT-003** — Inside a `@lit/task` task body, a reactive property must not be read after an `await`, and component state must not be assigned without first checking that the run is still the current one. A task re-runs when its args change, but the run it replaces is not cancelled — it resumes after its `await` and finishes. Anything it reads from `this` at that point belongs to the run that replaced it, and anything it assigns overwrites that run's work. The result is a component configured from one input while displaying another, which is invisible in tests because it needs two overlapping runs to reproduce and leaves no error behind.
+
+Capture what the run needs before its first `await`, and compare against the args the run started on before each assignment:
+
+```ts
+// wrong — `hidden` belongs to whichever session is current when the awaits
+// resolve, and the assignments clobber a newer run
+task: async ([url, sessionId]) => {
+  const session = await createSession(url, sessionId);
+  const client = await createClient(session);
+  const hidden = this.paymentSession?.hidden === true;
+  this.#client = client;
+  this.#widget = new Widget(client, {hidden});
+},
+
+// right — read up front, and bail before touching shared state
+task: async ([url, sessionId]) => {
+  const hidden = this.paymentSession?.hidden === true;
+  const isCurrent = () =>
+    this.url === url && this.paymentSession?.id === sessionId;
+
+  const session = await createSession(url, sessionId);
+  if (!isCurrent()) return undefined;
+
+  const client = await createClient(session);
+  if (!isCurrent()) return undefined;
+  this.#client = client;
+  this.#widget = new Widget(client, {hidden});
+},
+```
+
+The same applies to a side effect the run performs rather than stores — a dispatched event, a callback, a navigation. Guard it with the same check, or a stale run reports on a session it never looked at.
+
+A `@state` flag derived from such a run must also be cleared when the inputs that produced it change, or it outlives the run and suppresses every later one. Clear it against the value the task is actually keyed on, not the properties behind it: where the key comes from a getter (`resolvedUrl`, derived from `url` and `env`), watching only `url` misses a change to `env`.
 
 ---
 
