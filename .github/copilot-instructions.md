@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.22.0635
+  version: 2026.09.22.0849
 ---
 
 # Copilot Instructions
@@ -212,6 +212,24 @@ gh pr list --head "$branch" --state open --json number,url -q '.[0] // empty | "
 Consuming code must also distinguish the two non-answers it can now receive: empty output on a **zero** exit means absent, while a non-zero exit means the check failed and belongs in an error report, never in the absent path.
 
 Flag any snippet whose comment or prose equates a non-zero `gh ... view` exit with absence. A `view` call is correct once existence is already established — fetching fields of a PR the script knows it has — and the exit code may then be treated as a hard error.
+
+### Prescribed Fixes Obeying Their Own Rule
+
+**GEN-016** — A rule's recommended fix must not do the thing the rule forbids. When a rule states a prohibition and then shows a "right" example, the example is the operative definition of the rule: a reader who follows it is following the rule. If the example performs the forbidden operation, the prohibition is stated too broadly and must be narrowed to the case it actually means, with the exception named in the rule text rather than left for the reader to infer.
+
+```md
+<!-- wrong — the prohibition is absolute, but the prescribed guard violates it -->
+A reactive property must not be read after an `await`.
+
+// right
+const isCurrent = () => this.url === url;   // reads a reactive property after an await
+
+<!-- right — the prohibition is scoped, and the exception is stated -->
+A reactive property must not be read **for its value** after an `await`. The one read
+permitted after an `await` is the current-run check itself.
+```
+
+Check every rule that pairs a prohibition with a recommended pattern: read the prohibition literally, then read the recommended code as a reviewer would apply it. If the code would be flagged by the rule, either narrow the prohibition or change the example — a rule that forbids its own remedy is unenforceable, because the reviewer cannot tell which of the two to follow.
 
 ---
 
@@ -798,7 +816,7 @@ this.dispatchEvent(new CustomEvent('valueChanged', {detail: value}));
 
 ### Asynchronous Task State
 
-**LIT-003** — Inside a `@lit/task` task body, a reactive property must not be read after an `await`, and component state must not be assigned without first checking that the run is still the current one. A task re-runs when its args change, but the run it replaces is not cancelled — it resumes after its `await` and finishes. Anything it reads from `this` at that point belongs to the run that replaced it, and anything it assigns overwrites that run's work. The result is a component configured from one input while displaying another, which is invisible in tests because it needs two overlapping runs to reproduce and leaves no error behind.
+**LIT-003** — Inside a `@lit/task` task body, a reactive property must not be read **for its value** after an `await`, and component state must not be assigned without first checking that the run is still the current one. The one read permitted after an `await` is the current-run check itself — comparing a reactive property against the arg the run started on purely to decide whether to bail. A task re-runs when its args change, but the run it replaces is not cancelled — it resumes after its `await` and finishes. Anything it reads from `this` at that point belongs to the run that replaced it, and anything it assigns overwrites that run's work. The result is a component configured from one input while displaying another, which is invisible in tests because it needs two overlapping runs to reproduce and leaves no error behind.
 
 Capture what the run needs before its first `await`, and compare against the args the run started on before each assignment:
 
@@ -828,6 +846,8 @@ task: async ([url, sessionId]) => {
   this.#widget = new Widget(client, {hidden});
 },
 ```
+
+The `isCurrent()` guard is not a violation of the rule: it never consumes the property's value, it only compares it against the run's own args. Reading a stale value there is the whole point — a mismatch is the signal to bail. Every other read must happen before the first `await`. Where a task is not keyed on args that identify the run, use a non-reactive generation counter instead — increment a private field on each run, capture it in a local, and compare the local against the field after each `await`.
 
 The same applies to a side effect the run performs rather than stores — a dispatched event, a callback, a navigation. Guard it with the same check, or a stale run reports on a session it never looked at.
 
