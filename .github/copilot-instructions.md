@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.09.22.0900
+  version: 2026.10.10.1815
 ---
 
 # Copilot Instructions
@@ -427,7 +427,6 @@ type CreateUserInputSchemaOutput = v.InferOutput<typeof CreateUserInputSchema>;
 Reference these Relay docs when reviewing or generating GraphQL schema changes:
 
 - https://relay.dev/graphql/connections.htm
-- https://relay.dev/docs/guides/graphql-server-specification/
 
 **GQL-007** — GraphQL fields that expose paginated collections must follow the Relay Cursor Connections Specification. Do not introduce raw list fields for paginated data when a Relay connection should be used instead.
 
@@ -437,7 +436,7 @@ Reference these Relay docs when reviewing or generating GraphQL schema changes:
 
 **GQL-010** — Relay connection fields must accept Relay pagination arguments: `first` and `after` for forward pagination, and `last` and `before` for backward pagination.
 
-**GQL-011** — Relay-style refetching — the `Node` interface and the root `node(id: ID!)` field — is **optional**, decided per application. A type that opts in must expose an `id: ID!` from which the `node` resolver can recover the type. Because **GQL-014** forbids a type segment in the id itself, that recovery is server-side — a registry keyed by the opaque id, or a lookup across the types that opted in — and never a prefix parsed back out of the id. Which of those an application uses is its own design, not this rule's. A type that does not opt in must not implement `Node`, and fetches one record through a typed root field instead (`note(id: ID!)`, `contact(id: ID!)`); its `id` need only be unique within its own type. Do not flag a type for lacking `Node` or a schema for lacking `node(id:)`.
+**GQL-011** — We use Relay's connections, not its object identification. A new type must not implement the `Node` interface or be routed through the root `node(id: ID!)` field; it is fetched through its own typed root field (`note(id: ID!)`, `contact(id: ID!)`), and its `id` need only be unique within its type. Types that already implement `Node` keep it, because removing it from a public schema breaks clients (**GQL-012**), but no new type joins them. Call an id an id: do not describe one as a "bare" id or a "global" id, which frames every id against a Relay scheme we do not follow. Flag a diff that adds `implements Node` to a new type, and do not flag a type for lacking it.
 
 ### Public API Compatibility
 
@@ -456,20 +455,20 @@ Reusing the catalog `valibot` and the shared `@nr1e/commons/valibot` helpers kee
 
 ### ID Generation
 
-**GQL-014** — An `id` is an opaque string the server mints with a shared id generator. It carries no type segment, category or other prefix: the default id, and what a new type uses unless it has a reason not to, is a bare **KSUID** (27 base62 characters). A **UUIDv7** is permitted where an entity needs finer time ordering than a KSUID's one-second resolution, and a **UUIDv4** where an id must match or be shared with an external system that uses one; either choice must be deliberate, and its reason recorded in a comment where the id is minted (**GEN-014**). Sequential or otherwise enumerable ids must not be used.
+**GQL-014** — An `id` is an opaque string the server mints with a shared id generator. It carries no type segment, category or other prefix: the default id, and what a new type uses unless it has a reason not to, is a **KSUID** (27 base62 characters). A **UUIDv7** is permitted where an entity needs finer time ordering than a KSUID's one-second resolution, and a **UUIDv4** where an id must match or be shared with an external system that uses one; either choice must be deliberate, and its reason recorded in a comment where the id is minted (**GEN-014**). Sequential or otherwise enumerable ids must not be used.
 
 Clients must treat an `id` as opaque. Do not document its layout in the schema — a described format is one clients will parse — and do not derive anything from it server-side that a stored field could carry instead: the type of a record comes from where it was fetched, not from its id.
 
 Ordering is the one thing an id may legitimately carry. Both default bodies sort chronologically as strings — a KSUID to the second, a UUIDv7 to the millisecond — so either may be ordered on. Prefer an explicit timestamp attribute where the record can carry one: it survives a change of id scheme, it is visible to clients, and it can express a time the id does not (when an event occurred, rather than when its row was minted). Order on the id where no such field exists, or where the id is the tiebreaker within one timestamp. A UUIDv4 carries no time and must never be ordered on.
 
-A storage layer may prefix keys with the entity type for single-table design (`Pk = Note#<id>`), but that prefix belongs to the key, not the id: the stored record and the API carry the bare id, and the prefix is applied when a key is built and never parsed back out of one. Flag an id that is stored or served with a storage prefix attached.
+A storage layer may prefix keys with the entity type for single-table design (`Pk = Note#<id>`), but that prefix belongs to the key, not the id: the stored record and the API carry the id without it, and the prefix is applied when a key is built and never parsed back out of one. Flag an id that is stored or served with a storage prefix attached.
 
 Records minted under an earlier scheme — a type-prefixed `<Type>#<id>`, for example — keep the form they were written with, because stored ids are permanent. An existing type continuing to mint in its established form is not a violation, and the generator call that does so is load-bearing. This rule governs the ids a **new** type mints; flag an established form only when a diff introduces a new type through it.
 
 Example — a note, its storage key, and how a caller that needs another scheme opts in:
 
 ```ts
-// default — the id is a bare KSUID
+// default — the id is a KSUID
 const id = await ksuid();                   // '3C7tjIhKSFkG0v8CDCaGUq8Wpgs'
 const pk = `Note#${id}`;                    // storage key; never served
 
@@ -478,10 +477,6 @@ const pk = `Note#${id}`;                    // storage key; never served
 // resolution a KSUID does not carry.
 const id = uuidv7();
 ```
-
-### Global ID Generation
-
-**GQL-015** — _Retired._ Global ids are no longer required; **GQL-014** governs id generation. Nothing to flag under this code.
 
 ### Pagination Argument Direction
 
