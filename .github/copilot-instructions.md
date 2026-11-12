@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.11.12.0200
+  version: 2026.11.12.0215
 ---
 
 # Copilot Instructions
@@ -577,6 +577,28 @@ export class MyStage extends ExtendedStage {
 ### Lambda Runtimes
 
 **CDK-004** — Lambda functions must use the latest supported Node.js runtime (currently `Runtime.NODEJS_24_X`). Older runtimes such as `Runtime.NODEJS_20_X` and `Runtime.NODEJS_22_X` must not be used for new or updated functions.
+
+### Template Assertions
+
+**CDK-009** — A `Template` assertion on a resource type that CDK also synthesizes for its own machinery must pin the assertion to the construct's own resource, not merely to the type. `hasResourceProperties` succeeds when **any** resource of that type matches, and CDK injects its own Lambda functions — the custom-resource provider framework, `LogRetention`, `BucketDeployment` — each tracking a runtime this repository does not control. An assertion written as the type plus `Runtime` alone is satisfied by one of those functions, so it keeps passing after the construct under test regresses, which is the failure the assertion was added to catch. The test then reports success while asserting nothing about the code it names.
+
+Pin on a property unique to the construct's own resource, such as its `Handler`:
+
+```ts
+// wrong — also matched by CDK's provider-framework function, so it still
+// passes when the construct's own runtime regresses to nodejs22.x
+template.hasResourceProperties('AWS::Lambda::Function', {
+  Runtime: 'nodejs24.x',
+});
+
+// right — only the construct's own function carries this handler
+template.hasResourceProperties('AWS::Lambda::Function', {
+  Handler: 'index.handler',
+  Runtime: 'nodejs24.x',
+});
+```
+
+Verify a new assertion by breaking the thing it checks and confirming the test fails. An assertion that passes both before and after the regression is worse than none, because it is read as coverage.
 
 ### Cross-Stack Parameters
 
