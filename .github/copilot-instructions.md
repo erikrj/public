@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.11.12.0200
+  version: 2026.11.12.1244
 ---
 
 # Copilot Instructions
@@ -27,7 +27,7 @@ Rule codes are grouped by domain. The following prefixes are reserved:
 - `PY-` — Python (language, tooling, style)
 - `GQL-` — GraphQL (schema conventions, client types, validation)
 - `CDK-` — AWS CDK (infrastructure constructs, stacks, stages)
-- `DDB-` — DynamoDB (data access, table and entity modeling)
+- `DDB-` — DynamoDB (data access, table and entity modeling, streams)
 - `QWIK-` — Qwik (routing, loaders, server boundaries)
 - `LIT-` — Lit (web components, reactive properties, attribute mapping)
 - `UI-` — User interface (styling, theming)
@@ -791,6 +791,26 @@ export const contentSchema = v.pipe(
     `content must be at most ${MAX_CONTENT_BYTES} bytes of UTF-8`,
   ),
 );
+```
+
+### Stream Consumers
+
+**DDB-010** — A DynamoDB table's stream must have no more than **one** Lambda consumer when the table is a global table, and no more than **two** when it is a single-Region (local) table. A consumer here is a Lambda event source mapping on the table's stream — a `DynamoEventSource`, `addEventSource`, or `EventSourceMapping` whose source is the table's `tableStreamArn` — and the count is per table across every stack and repository that attaches to it, not per stack. DynamoDB throttles a stream shard read by more than two processes at once, and a global table's replication is itself a reader of that stream, which is why a global table has room for only one more. The failure does not show at deploy time: every mapping attaches successfully, and the excess surfaces later as throttled `GetRecords` calls and a growing iterator age on all the consumers, including the ones that were there first.
+
+A table is global when it declares replicas — `replicas` on a `TableV2`, `replicationRegions` on a `Table` — and the limit applies to the stream in each replica Region separately. When more handlers need the changes than the limit allows, attach one consumer and fan out from it (to EventBridge, SNS, or SQS) instead of adding another mapping. Flag any change that adds an event source mapping to a table's stream and takes the table past its limit; when the other consumers are not visible in the diff, ask how many the table already has.
+
+```ts
+// wrong — a global table with two Lambda consumers on its stream
+const table = new TableV2(this, 'Table', {
+  partitionKey: { name: 'pk', type: AttributeType.STRING },
+  dynamoStream: StreamViewType.NEW_AND_OLD_IMAGES,
+  replicas: [{ region: 'us-west-2' }],
+});
+indexer.addEventSource(new DynamoEventSource(table, { startingPosition: StartingPosition.LATEST }));
+notifier.addEventSource(new DynamoEventSource(table, { startingPosition: StartingPosition.LATEST }));
+
+// right — one consumer, which publishes to a bus the other handlers subscribe to
+publisher.addEventSource(new DynamoEventSource(table, { startingPosition: StartingPosition.LATEST }));
 ```
 
 ---
