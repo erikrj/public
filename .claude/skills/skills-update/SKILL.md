@@ -5,7 +5,7 @@ allowed-tools: Bash(gh:*), Bash(jq:*), Bash(mkdir:*), Bash(git:*), Read, Write, 
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/skills-update
-  version: 2026.11.24.1724
+  version: 2026.11.24.1730
 ---
 
 Refresh every installed skill — **and** the repository's other tracked
@@ -247,12 +247,23 @@ those; otherwise do them all.
     - **source-missing** — the source directory/file did not exist at that ref;
     - **failed** — an error occurred (include the error).
 
-    Then summarize the whole run: the branch the update is on and the commit
-    sha, which files changed (`git show --stat HEAD` is the clearest way to show
-    it), and any **stale** files you flagged. Note that the PR is a draft, and
-    that `{old}` was left untouched and is no longer checked out. When nothing
-    changed, say instead that no branch, commit, or PR was created and that the
-    checkout is back on `{old}`.
+    Then summarize the whole run, according to how step 9 ended:
+    - **A commit was made.** Give the branch the update is on and the commit
+      sha, and show which files changed with `git show --stat HEAD`. Note that
+      the PR is a draft, and that `{old}` was left untouched and is no longer
+      checked out.
+    - **Step 9 stopped without committing** (a download failed, or a phase
+      failed before the commit). `HEAD` is still the `main` commit the branch
+      was cut from, so `git show --stat HEAD` would describe an unrelated
+      change and omit the very files the user has to recover. Show the working
+      tree instead — `git status --short` and `git diff --stat HEAD` — name each
+      damaged destination, and say that nothing was committed or pushed, that
+      no PR exists, and that the checkout is on `{new}`.
+    - **Nothing changed.** Say that no branch, commit, or PR was created and
+      that the checkout is back on `{old}` — or, if the cleanup could not finish,
+      that `{new}` was left in place and why.
+
+    In every case list any **stale** files you flagged.
 
     Finish with the PR URL as a bare `https://github.com/...` URL on its own
     line, so the terminal makes it clickable — never a PR number or a branch
