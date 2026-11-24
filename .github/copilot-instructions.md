@@ -2,7 +2,7 @@
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/blob/main/.github/copilot-instructions.md
-  version: 2026.11.12.1244
+  version: 2026.11.24.0611
 ---
 
 # Copilot Instructions
@@ -420,7 +420,7 @@ The following type conventions apply when working with GraphQL.
 
 #### "Schema" type
 
-**GQL-001** — Valibot schemas are defined in the client for all "input" types. They should end in `Schema`. So if you have an input in your GraphQL schema defined as `CreateUserInput`, you will get a generated interface called `CreateUserInput` from gqty. You would then create a schema called `CreateUserInputSchema`.
+**GQL-001** — Valibot schemas are defined in the client for all "input" types. They should end in `Schema`. So if you have an input in your GraphQL schema defined as `UserCreateInput`, you will get a generated interface called `UserCreateInput` from gqty. You would then create a schema called `UserCreateInputSchema`.
 
 #### "SchemaInput" type
 
@@ -429,7 +429,7 @@ The following type conventions apply when working with GraphQL.
 Example:
 
 ```ts
-type CreateUserInputSchemaInput = v.InferInput<typeof CreateUserInputSchema>;
+type UserCreateInputSchemaInput = v.InferInput<typeof UserCreateInputSchema>;
 ```
 
 #### "SchemaOutput" type
@@ -439,14 +439,14 @@ type CreateUserInputSchemaInput = v.InferInput<typeof CreateUserInputSchema>;
 Example:
 
 ```ts
-type CreateUserInputSchemaOutput = v.InferOutput<typeof CreateUserInputSchema>;
+type UserCreateInputSchemaOutput = v.InferOutput<typeof UserCreateInputSchema>;
 ```
 
 **GQL-004** — All input types should be validated before being used inside the GraphQL resolver functions.
 
 #### "Detail" type
 
-**GQL-005** — For DynamoDB records using a `Detail` field, a type ending in `Detail` should be created. So if you have a `createUser` GraphQL mutation that stores a user object in the `Detail` field of a DynamoDB record, you should have a type defined as `UserDetail`.
+**GQL-005** — For DynamoDB records using a `Detail` field, a type ending in `Detail` should be created. So if you have a `userCreate` GraphQL mutation that stores a user object in the `Detail` field of a DynamoDB record, you should have a type defined as `UserDetail`.
 
 #### "View" type
 
@@ -467,6 +467,36 @@ Reference these Relay docs when reviewing or generating GraphQL schema changes:
 **GQL-010** — Relay connection fields must accept Relay pagination arguments: `first` and `after` for forward pagination, and `last` and `before` for backward pagination.
 
 **GQL-011** — We use Relay's connections, not its object identification. A new type must not implement the `Node` interface or be routed through the root `node(id: ID!)` field; it is fetched through its own typed root field (`note(id: ID!)`, `contact(id: ID!)`), and its `id` need only be unique within its type. Types that already implement `Node` keep it, because removing it from a public schema breaks clients (**GQL-012**), but no new type joins them. Call an id an id: do not describe one as a "bare" id or a "global" id, which frames every id against a Relay scheme we do not follow. Flag a diff that adds `implements Node` to a new type, and do not flag a type for lacking it.
+
+### Operation Naming
+
+**GQL-017** — Root `Query` and `Mutation` fields must be named noun first: the entity the operation acts on leads, and the action follows it — `invoiceCreate`, not `createInvoice`. Noun-first names sort and autocomplete by entity, so everything that can be done to an invoice sits together in the schema, in generated clients and in logs, instead of being scattered across `create…`, `update…` and `delete…`.
+
+A query that simply fetches is the noun alone — `invoice(id: ID!)` for one, `invoices` for a connection — with no `get`, `list` or `fetch` verb at either end. A query that needs a qualifier appends it after the noun: `invoiceSearch`, `invoiceByNumber`. Types named after an operation follow its name, so `invoiceCreate` takes an `InvoiceCreateInput`.
+
+```graphql
+# wrong — verb first
+type Mutation {
+  createInvoice(input: CreateInvoiceInput!): Invoice!
+  sendInvoice(id: ID!): Invoice!
+}
+type Query {
+  getInvoice(id: ID!): Invoice
+  searchInvoices(query: String!, first: Int, after: String): InvoiceConnection!
+}
+
+# right — noun first
+type Mutation {
+  invoiceCreate(input: InvoiceCreateInput!): Invoice!
+  invoiceSend(id: ID!): Invoice!
+}
+type Query {
+  invoice(id: ID!): Invoice
+  invoiceSearch(query: String!, first: Int, after: String): InvoiceConnection!
+}
+```
+
+This rule governs fields a diff **adds**. An existing verb-first field keeps its name, because renaming it breaks clients (**GQL-012**); to move one, add the noun-first field alongside it and deprecate the old one. Flag a new root field that leads with a verb, and do not flag an established one.
 
 ### Public API Compatibility
 
