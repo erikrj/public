@@ -5,7 +5,7 @@ allowed-tools: Bash(gh:*), Bash(jq:*), Bash(mkdir:*), Bash(git:*), Read, Write, 
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/skills-update
-  version: 2026.11.24.1712
+  version: 2026.11.24.1724
 ---
 
 Refresh every installed skill — **and** the repository's other tracked
@@ -81,7 +81,12 @@ those; otherwise do them all.
    git branch --list "{user}/skills-update*"
    git ls-remote --heads origin "{user}/skills-update*"
    git switch --no-track -c {user}/skills-update origin/main
+   git rev-parse HEAD                  # the new branch's tip — remember as {new-sha}
    ```
+   Remember the name actually used — suffix included — as `{new}`. Every later
+   step refers to the branch by `{new}`, never by the unsuffixed name, which may
+   belong to an earlier run.
+
    The branch is cut **before** any file is fetched, not after, so the refreshed
    files are written directly on top of current `main` and the PR's diff is
    exactly "source vs. `main`". Carrying them over from the starting branch
@@ -185,21 +190,43 @@ those; otherwise do them all.
    - Keep going if one item fails (network error, missing source) — collect the
      failure and continue so one bad source does not abort the whole update.
 
-9. Ship the result. Check whether the update changed anything:
+9. Ship the result — unless a download went wrong. The fetches in step 6
+   redirect straight into the destination, so a request that failed, or a
+   tracked file whose source returned `404`, has already left an empty or
+   partial file where the good copy was. Committing now would publish that
+   damage alongside the successful updates. So if any item is **failed**, or any
+   **tracked file** is **source-missing**, do **not** commit, push, or open a
+   PR, and do not clean up either: leave the working tree as it is on `{new}`
+   for recovery, and go to step 10 to report which destinations are damaged.
+   `git restore -- <path>` brings back the pre-update copy of any of them, since
+   the tree was clean when the run started.
+
+   Otherwise check whether the update changed anything:
    ```sh
    git status --porcelain
    ```
    - **Nothing changed** (empty output — every item was unchanged or skipped).
      There is nothing to open a PR for, so undo step 2 rather than leave an
-     empty branch behind: return to the starting point and delete the new
-     branch.
+     empty branch behind: return to the starting point, then delete the branch
+     this run created — `{new}`, and only if its tip is still where step 2 left
+     it.
      ```sh
      git switch {old}                  # or: git switch --detach {old-sha}  when {old} is HEAD
-     git branch -d {user}/skills-update
+     git rev-parse {new}               # must equal {new-sha} — otherwise leave {new} alone
+     git branch -D {new}
      ```
-   - **Something changed.** Follow `.claude/skills/commit/SKILL.md` to stage and
-     commit everything, then `.claude/skills/pr-create/SKILL.md` to push and open
-     the **draft** PR. Read each `SKILL.md` and follow its steps as written
+     The delete is forced because the safe form judges "merged" against the
+     checkout just restored, and refuses whenever `{old}` is behind the freshly
+     fetched `main` — which is the ordinary case. Comparing the tip to
+     `{new-sha}` first is what makes forcing safe: an unchanged tip is a commit
+     already on `origin/main`, so nothing can be lost. If the switch back fails
+     or the tip has moved, delete nothing and report that `{new}` was left in
+     place.
+   - **Something changed.** Follow `<SKILLS_DIR>/commit/SKILL.md` to stage and
+     commit everything, then `<SKILLS_DIR>/pr-create/SKILL.md` to push and open
+     the **draft** PR — resolved through `SKILLS_DIR` from step 1, not a
+     hardcoded path, so the sibling skills are found wherever the skills
+     directory is installed. Read each `SKILL.md` and follow its steps as written
      rather than reimplementing them here. Write the commit message and the PR
      title and body from the per-item results — which skills and tracked files
      moved, and from which `metadata.version` to which — not as a file list.
@@ -229,6 +256,6 @@ those; otherwise do them all.
 
     Finish with the PR URL as a bare `https://github.com/...` URL on its own
     line, so the terminal makes it clickable — never a PR number or a branch
-    name in its place. On an exit with no PR (nothing changed, the user asked to
-    skip it, or a phase failed), say so in as many words and name the current
+    name in its place. On an exit with no PR (nothing changed, a download
+    failed, the user asked to skip it, or a phase failed), say so in as many words and name the current
     branch, so a missing link is never mistaken for an oversight.
