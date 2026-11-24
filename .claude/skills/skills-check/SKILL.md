@@ -5,7 +5,7 @@ allowed-tools: Bash(gh:*), Bash(git:*), Bash(ls:*), Bash(grep:*), Bash(sed:*), B
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/skills-check
-  version: 2026.09.19.1218
+  version: 2026.11.24.1712
 ---
 
 Report how every installed skill — **and** the repository's other tracked
@@ -230,8 +230,9 @@ them all.
 
    End with the concrete next step, and say plainly that **nothing was fetched
    into the working tree, nothing was changed, and nothing was committed**:
-   - anything **outdated** (local-edit check clean) → `/skills-update`, then
-     review the result and commit — noting that it overwrote the local bytes;
+   - anything **outdated** (local-edit check clean) → `/skills-update`, which
+     puts the refreshed files on a fresh branch off `origin/main` and opens a
+     draft PR to review;
    - anything **outdated + local edits** → reconcile by hand first; running
      `/skills-update` would discard the unpublished local side;
    - anything **ahead** → the local edits are unpublished; open a PR from here;

@@ -1,11 +1,11 @@
 ---
 name: skills-update
-description: Update every installed skill and other tracked files (e.g. copilot-instructions.md) from each file's authoritative source URL in its metadata
+description: Update every installed skill and other tracked files (e.g. copilot-instructions.md) from each file's authoritative source URL in its metadata, on a fresh branch, and open a draft PR with the result
 allowed-tools: Bash(gh:*), Bash(jq:*), Bash(mkdir:*), Bash(git:*), Read, Write, Glob
 metadata:
   owner: Erik Jensen (@erikrj)
   source: https://github.com/erikrj/public/tree/main/.claude/skills/skills-update
-  version: 2026.07.26.0811
+  version: 2026.11.24.1712
 ---
 
 Refresh every installed skill — **and** the repository's other tracked
@@ -21,9 +21,14 @@ matches the source exactly:
 - A **tracked file** source is a GitHub **blob** URL (a single file). Re-download
   just that one file to its path in the repository.
 
-This skill only writes files into the working tree — it does **not** commit,
-push, or touch git history. Review the resulting diff yourself and commit when
-happy.
+**The update ships as its own pull request.** The skill cuts a fresh branch from
+an up-to-date `origin/main`, writes the refreshed files there, commits them,
+pushes, and opens a **draft** PR — so a sync is always reviewed as one isolated
+change and never lands mixed into unrelated work. When nothing changed, no
+branch, commit, or PR is left behind. The only way to skip the branch and PR is
+for the user to say so in the same request (e.g. "update the skills but don't
+open a PR"); then skip steps 2 and 9, write the files into the current working
+tree, and stop there.
 
 **Update everything tracked, not a subset.** Invoking this skill means refresh
 all installed skills that declare a source **and** every tracked file. Do not
@@ -38,6 +43,11 @@ those; otherwise do them all.
   a `/blob/` URL for a tracked file. If a `source` points at a different host (or
   is neither a `/tree/` nor a `/blob/` URL), skip it and report it as
   **unsupported** — do not guess how to fetch it.
+- Requires a **clean working tree** (`git status --porcelain` prints nothing).
+  The commit step ships everything in the tree, so any change already there
+  would be swept into the sync PR — and an uncommitted local edit to a skill
+  would be overwritten outright. If the tree is dirty, stop **before** switching
+  branches or writing anything, and tell the user to commit or stash first.
 - The fetch is **authoritative-wins**: local files are overwritten with the source
   version. Files that exist locally but are **absent from the source** are **not**
   deleted automatically — they are reported as **stale** so the user can decide.
@@ -51,7 +61,40 @@ those; otherwise do them all.
    repository root too (`git rev-parse --show-toplevel`) — tracked files are
    written relative to it.
 
-2. Build the list of tracked items to refresh:
+2. Cut the branch the update will ship on. First apply the clean-tree guard and
+   record where the run started, so it can return there if there turns out to
+   be nothing to update:
+   ```sh
+   git status --porcelain              # must print nothing — otherwise stop
+   git rev-parse --abbrev-ref HEAD     # starting branch — remember as {old}
+   git rev-parse HEAD                  # starting commit — remember as {old-sha}
+   gh api user -q .login               # remember as {user}
+   ```
+   `{old}` is the literal string `HEAD` when the checkout is detached; that is
+   what `{old-sha}` is for.
+
+   Name the branch `{user}/skills-update`. If that name is already taken locally
+   or on the remote — typically an earlier sync whose PR is still open — append
+   `-2`, `-3`, … until it is free:
+   ```sh
+   git fetch origin main
+   git branch --list "{user}/skills-update*"
+   git ls-remote --heads origin "{user}/skills-update*"
+   git switch --no-track -c {user}/skills-update origin/main
+   ```
+   The branch is cut **before** any file is fetched, not after, so the refreshed
+   files are written directly on top of current `main` and the PR's diff is
+   exactly "source vs. `main`". Carrying them over from the starting branch
+   afterwards would conflict whenever that branch and `main` disagree about a
+   skill. Leave `{old}` in place — it is the user's branch, and this skill has no
+   business deleting it.
+
+   Switching to `origin/main` can change the files on disk under `SKILLS_DIR`,
+   including this one. Build the item list in the next step from what is on disk
+   **after** the switch: the PR targets `main`, so `main`'s set of skills is the
+   set to refresh.
+
+3. Build the list of tracked items to refresh:
    - **Skills** — every immediate subdirectory of `SKILLS_DIR` that contains a
      `SKILL.md`:
      ```sh
@@ -66,7 +109,7 @@ those; otherwise do them all.
      (This list is intentionally explicit — these files are not discovered by the
      `<name>/SKILL.md` walk, even when they sit inside `SKILLS_DIR`.)
 
-3. For each item (a skill's `SKILL.md` or a tracked file), extract its
+4. For each item (a skill's `SKILL.md` or a tracked file), extract its
    `metadata.source`. It is the `source:` line nested under the `metadata:` key in
    the YAML frontmatter:
    ```sh
@@ -79,7 +122,7 @@ those; otherwise do them all.
    ```
    - If there is no `source`, skip the item and report it as **no-source**.
 
-4. Parse the GitHub URL and note its **kind**. Split on `/`: `OWNER` and `REPO`
+5. Parse the GitHub URL and note its **kind**. Split on `/`: `OWNER` and `REPO`
    are the two segments after `github.com`, the next segment is the **kind**
    (`tree` or `blob`), the segment after that is `REF`, and everything after `REF`
    is `PATH`.
@@ -94,7 +137,7 @@ those; otherwise do them all.
    **unsupported**. A URL that is neither `tree` nor `blob`, or not on
    `github.com`, is also **unsupported**.
 
-5. Fetch and write the source, depending on the kind:
+6. Fetch and write the source, depending on the kind:
 
    - **`tree` (skill directory).** List every file under `PATH` in one call with
      the recursive Git-tree API, keeping only the blobs under `PATH`:
@@ -129,30 +172,63 @@ those; otherwise do them all.
    Write every file **exactly** as fetched — do not reformat, re-wrap, or "fix"
    the content. The source is authoritative.
 
-6. For a **skill** directory, detect **stale** local files — files under the local
+7. For a **skill** directory, detect **stale** local files — files under the local
    skill directory that were **not** in the source blob list. Report them; do
    **not** delete them unless the user asks you to prune. (A common stale file is
    an intentional local rename or a local-only note.) Tracked single files have no
    stale-file concept.
 
-7. Move to the next item and repeat. Note two things while iterating:
+8. Move to the next item and repeat. Note two things while iterating:
    - **Self-update.** If `skills-update` itself is refreshed, its `SKILL.md` is
      rewritten on disk mid-run. The instructions already loaded for *this* run are
      unaffected; the new version takes effect next time.
    - Keep going if one item fails (network error, missing source) — collect the
      failure and continue so one bad source does not abort the whole update.
 
-8. Report the result as a per-item summary (skills and tracked files together).
-   For each item list one of:
-   - **updated** — files fetched and written (note how many, and if any nested
-     related files were included);
-   - **unchanged** — fetched, but identical to what was already on disk;
-   - **no-source** — no `metadata.source`, skipped;
-   - **unsupported** — non-github.com or a URL that is neither `tree` nor `blob`;
-   - **source-missing** — the source directory/file did not exist at that ref;
-   - **failed** — an error occurred (include the error).
+9. Ship the result. Check whether the update changed anything:
+   ```sh
+   git status --porcelain
+   ```
+   - **Nothing changed** (empty output — every item was unchanged or skipped).
+     There is nothing to open a PR for, so undo step 2 rather than leave an
+     empty branch behind: return to the starting point and delete the new
+     branch.
+     ```sh
+     git switch {old}                  # or: git switch --detach {old-sha}  when {old} is HEAD
+     git branch -d {user}/skills-update
+     ```
+   - **Something changed.** Follow `.claude/skills/commit/SKILL.md` to stage and
+     commit everything, then `.claude/skills/pr-create/SKILL.md` to push and open
+     the **draft** PR. Read each `SKILL.md` and follow its steps as written
+     rather than reimplementing them here. Write the commit message and the PR
+     title and body from the per-item results — which skills and tracked files
+     moved, and from which `metadata.version` to which — not as a file list.
+     Mention any **stale** files in the PR body, since the reviewer is the one
+     who decides whether to prune them.
 
-   Then summarize the whole run: which files changed (a `git status --short` /
-   `git diff --stat` is the clearest way to show it), any **stale** files you
-   flagged, and a reminder that **nothing was committed or pushed** — the user
-   should review the diff and commit when satisfied.
+     If either skill is not installed in this repository, or a phase fails
+     partway, stop there and report exactly how far the run got: the branch
+     name, whether the changes are committed, and whether they are pushed.
+
+10. Report the result as a per-item summary (skills and tracked files together).
+    For each item list one of:
+    - **updated** — files fetched and written (note how many, and if any nested
+      related files were included);
+    - **unchanged** — fetched, but identical to what was already on disk;
+    - **no-source** — no `metadata.source`, skipped;
+    - **unsupported** — non-github.com or a URL that is neither `tree` nor `blob`;
+    - **source-missing** — the source directory/file did not exist at that ref;
+    - **failed** — an error occurred (include the error).
+
+    Then summarize the whole run: the branch the update is on and the commit
+    sha, which files changed (`git show --stat HEAD` is the clearest way to show
+    it), and any **stale** files you flagged. Note that the PR is a draft, and
+    that `{old}` was left untouched and is no longer checked out. When nothing
+    changed, say instead that no branch, commit, or PR was created and that the
+    checkout is back on `{old}`.
+
+    Finish with the PR URL as a bare `https://github.com/...` URL on its own
+    line, so the terminal makes it clickable — never a PR number or a branch
+    name in its place. On an exit with no PR (nothing changed, the user asked to
+    skip it, or a phase failed), say so in as many words and name the current
+    branch, so a missing link is never mistaken for an oversight.
