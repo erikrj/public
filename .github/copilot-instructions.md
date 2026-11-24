@@ -482,7 +482,7 @@ type Mutation {
 }
 type Query {
   getInvoice(id: ID!): Invoice
-  searchInvoices(query: String!, first: Int, after: String): InvoiceConnection!
+  searchInvoices(query: String!, first: Int, after: String, last: Int, before: String): InvoiceConnection!
 }
 
 # right — noun first
@@ -492,7 +492,7 @@ type Mutation {
 }
 type Query {
   invoice(id: ID!): Invoice
-  invoiceSearch(query: String!, first: Int, after: String): InvoiceConnection!
+  invoiceSearch(query: String!, first: Int, after: String, last: Int, before: String): InvoiceConnection!
 }
 ```
 
