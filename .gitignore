@@ -17,7 +17,7 @@ cdk.out
 .claude/*
 !.claude/commands/
 !.claude/settings.json
-# This repo publishes its agent skills, so they are tracked.
+# Repo-specific agent skills are tracked; shared ones come from the Dev Playbook MCP.
 !.claude/skills/
 .claude/settings.local.json
 

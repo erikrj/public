@@ -1,19 +1,9 @@
 # Agent Instructions
 
-The authoritative coding and review rules for this repository live in
-[`.github/copilot-instructions.md`](.github/copilot-instructions.md).
+The coding and review rules for this repository, and the agent skills for
+working in it, come from the [Dev Playbook](https://nr1e.com/tools). It is
+configured as the `dev` MCP server in [`.mcp.json`](.mcp.json).
 
-**Before writing, modifying, or reviewing any code in this repository, read
-`.github/copilot-instructions.md` and follow every rule it defines.** Each rule
-carries a code (e.g. `TS-001`, `GEN-005`); treat every rule as required unless
-its own text uses "should" or "may". When your change relates to a rule, comply
-with it and cite the rule code in your explanation.
-
-That file is the single source of truth for repository conventions — this file
-only points to it, so that all agents (Claude, Copilot, and others) apply the
-same rules.
-
-Note **GEN-005**: agent skills under `.claude/skills/` and
-`.github/copilot-instructions.md` itself are distributed copies synced from an
-upstream `metadata.source`. Do not edit those files locally — make changes in
-their authoritative source and re-sync.
+Before you write or review code, call `rules_for_files` on the `dev` MCP server
+with the paths being changed, then `get_rules` for the full text of the rules it
+lists. Cite the rule code when you flag a violation.
