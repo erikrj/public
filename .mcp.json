@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "dev": {
+      "type": "http",
+      "url": "https://devplaybook.nr1e.com"
+    }
+  }
+}

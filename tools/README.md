@@ -6,8 +6,8 @@ installed and run locally.
 
 ## Conventions
 
-Tools follow the repository's TypeScript conventions (see
-[`.github/copilot-instructions.md`](../.github/copilot-instructions.md)):
+Tools follow the repository's TypeScript conventions (the rules served by the
+[Dev Playbook](https://nr1e.com/tools) — see [`AGENTS.md`](../AGENTS.md)):
 
 - **ESM + NodeNext.** `"type": "module"`, `tsc` builds `src/**/*.ts` to `dist/`.
 - **Biome** for formatting and linting (`prebuild` runs `biome check`).
